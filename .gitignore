@@ -1,0 +1,12 @@
+node_modules
+.expo
+coverage
+dist
+web-build
+.env
+npm-debug.log*
+.wrangler
+.expo-web-*
+bundle-*.js
+expo-web*.log
+cred.txt

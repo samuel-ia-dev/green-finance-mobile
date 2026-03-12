@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Date>2026-03-10T23:59:00</Date>
+    <Author>DESKTOP-UMPF7Q3\Tom</Author>
+    <URI>\OpenLocalhostSamuel</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-21-2191283570-238195927-953560104-1003</UserId>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+  </Settings>
+  <Triggers>
+    <TimeTrigger>
+      <StartBoundary>2026-03-10T23:59:00</StartBoundary>
+    </TimeTrigger>
+  </Triggers>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\Windows\System32\wscript.exe</Command>
+      <Arguments>"C:\Users\Samuel - Job Rotatio\Desktop\samuel projetos\open-localhost-visible.vbs"</Arguments>
+      <WorkingDirectory>C:\Users\Samuel - Job Rotatio\Desktop\samuel projetos</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
