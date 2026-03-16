@@ -74,7 +74,8 @@ describe("HistoryScreen", () => {
     const screen = render(<HistoryScreen />);
 
     expect(screen.getByText("Internet")).toBeTruthy();
-    expect(screen.getByText("🔁")).toBeTruthy();
+    expect(screen.queryByText("Plano")).toBeNull();
+    expect(screen.getAllByText("🔁").length).toBeGreaterThan(0);
     expect(screen.getByText("Moradia")).toBeTruthy();
     expect(screen.getByText(formatMonthChip(mockNextMonth))).toBeTruthy();
 

@@ -5,7 +5,7 @@ import { cacheService } from "@/services/cacheService";
 import { firestoreService } from "@/services/firestoreService";
 import { useFinanceStore } from "@/store/useFinanceStore";
 import { getMonthKey } from "@/utils/format";
-import { buildRecurringInstallments, resolveRecurringEndDate } from "@/utils/recurring";
+import { buildRecurringInstallments, isSameRecurringSeries, resolveRecurringEndDate } from "@/utils/recurring";
 
 const emptyPayload: FinanceHydrationPayload = {
   transactions: [],
@@ -31,7 +31,7 @@ async function ensureRecurringCoverage(userId: string, transactions: Transaction
   for (const template of templates) {
     const recurringEndDate = resolveRecurringEndDate(template.recurringStartDate!, template.recurringEndDate);
     const relatedDates = transactions
-      .filter((transaction) => transaction.id === template.id || transaction.parentRecurringId === template.id)
+      .filter((transaction) => isSameRecurringSeries(transaction, template))
       .map((transaction) => transaction.date);
 
     const generated = buildRecurringInstallments({

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, TextInput } from "react-native";
 import { GoalCard } from "@/components/GoalCard";
 import { ScreenShell } from "@/components/ScreenShell";
 import { SectionCard } from "@/components/SectionCard";
@@ -47,6 +47,7 @@ export function GoalsScreen() {
           placeholder="Valor alvo"
           value={targetAmount}
           onChangeText={setTargetAmount}
+          keyboardType={Platform.select({ android: "numeric", ios: "decimal-pad", default: "numeric" })}
           style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
           placeholderTextColor={theme.colors.textMuted}
         />

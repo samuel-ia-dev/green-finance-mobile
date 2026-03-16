@@ -94,6 +94,50 @@ describe("useFinanceStore", () => {
     );
   });
 
+  it("deduplicates future recurring entries even when one copy lost the parent id", () => {
+    act(() => {
+      useFinanceStore.getState().setTransactions([
+        {
+          ...transaction,
+          id: "root-1-2026-04-10",
+          date: "2026-04-10",
+          amount: 120,
+          categoryId: "housing",
+          categoryName: "Moradia",
+          description: "Internet",
+          isRecurring: true,
+          recurringFrequency: "monthly",
+          recurringStartDate: "2026-03-10",
+          parentRecurringId: "root-1",
+          updatedAt: "2026-04-10T09:00:00.000Z",
+          createdAt: "2026-04-10T09:00:00.000Z"
+        },
+        {
+          ...transaction,
+          id: "legacy-dup-2026-04-10",
+          date: "2026-04-10",
+          amount: 120,
+          categoryId: "housing",
+          categoryName: "Moradia",
+          description: "Internet",
+          isRecurring: true,
+          recurringFrequency: "monthly",
+          recurringStartDate: "2026-03-10",
+          updatedAt: "2026-04-10T08:00:00.000Z",
+          createdAt: "2026-04-10T08:00:00.000Z"
+        }
+      ]);
+    });
+
+    expect(useFinanceStore.getState().transactions).toHaveLength(1);
+    expect(useFinanceStore.getState().transactions[0]).toEqual(
+      expect.objectContaining({
+        id: "root-1-2026-04-10",
+        parentRecurringId: "root-1"
+      })
+    );
+  });
+
   it("updates local state and toggles syncing", () => {
     act(() => {
       useFinanceStore.getState().setTransactions([

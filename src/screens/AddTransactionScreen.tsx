@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { ScreenShell } from "@/components/ScreenShell";
 import { SectionCard } from "@/components/SectionCard";
 import { useAuthSession } from "@/context/AuthSessionContext";
 import { useAppTheme } from "@/context/ThemeContext";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { firestoreService } from "@/services/firestoreService";
 import { useFinanceStore } from "@/store/useFinanceStore";
 import { TransactionType } from "@/types/finance";
@@ -17,6 +18,7 @@ const builtInCategories = ["Alimentação", "Transporte", "Moradia", "Saúde", "
 
 export function AddTransactionScreen() {
   const { theme } = useAppTheme();
+  const { isCompact } = useResponsiveLayout();
   const { user } = useAuthSession();
   const history = useFinanceStore((state) => state.transactions);
   const editingTransaction = useFinanceStore((state) => state.editingTransaction);
@@ -106,43 +108,70 @@ export function AddTransactionScreen() {
   return (
     <ScreenShell>
       <SectionCard title={editingTransaction ? "Editar transação" : "Nova transação"} subtitle={`Sugestão automática: ${suggestedCategory}`}>
-        <View style={styles.row}>
-          <Pressable onPress={() => setType("income")}>
-            <Text style={{ color: type === "income" ? theme.colors.primary : theme.colors.textMuted }}>Receita</Text>
+        <View style={[styles.row, isCompact && styles.rowWrap]}>
+          <Pressable
+            onPress={() => setType("income")}
+            style={[styles.segmentButton, { backgroundColor: type === "income" ? theme.colors.cardAlt : "transparent", borderColor: type === "income" ? theme.colors.primary : theme.colors.borderSoft }]}
+          >
+            <Text style={[styles.segmentLabel, { color: type === "income" ? theme.colors.primary : theme.colors.textMuted }]}>Receita</Text>
           </Pressable>
-          <Pressable onPress={() => setType("expense")}>
-            <Text style={{ color: type === "expense" ? theme.colors.primary : theme.colors.textMuted }}>Despesa</Text>
+          <Pressable
+            onPress={() => setType("expense")}
+            style={[styles.segmentButton, { backgroundColor: type === "expense" ? theme.colors.cardAlt : "transparent", borderColor: type === "expense" ? theme.colors.primary : theme.colors.borderSoft }]}
+          >
+            <Text style={[styles.segmentLabel, { color: type === "expense" ? theme.colors.primary : theme.colors.textMuted }]}>Despesa</Text>
           </Pressable>
         </View>
-        <TextInput
-          placeholder="Valor"
-          value={amount}
-          onChangeText={setAmount}
-          style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
-          placeholderTextColor={theme.colors.textMuted}
-        />
-        <TextInput
-          placeholder="Descrição"
-          value={description}
-          onChangeText={setDescription}
-          style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
-          placeholderTextColor={theme.colors.textMuted}
-        />
-        <Text style={{ color: theme.colors.textMuted }}>Categoria</Text>
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.colors.textMuted }]}>Valor</Text>
+          <TextInput
+            placeholder="Valor"
+            value={amount}
+            onChangeText={setAmount}
+            autoCapitalize="none"
+            autoComplete="off"
+            autoCorrect={false}
+            importantForAutofill="no"
+            inputMode="decimal"
+            keyboardType={Platform.select({ android: "numeric", ios: "decimal-pad", default: "numeric" })}
+            spellCheck={false}
+            textContentType="none"
+            style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
+            placeholderTextColor={theme.colors.textMuted}
+          />
+        </View>
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.colors.textMuted }]}>Descrição</Text>
+          <TextInput
+            placeholder="Descrição"
+            value={description}
+            onChangeText={setDescription}
+            style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
+            placeholderTextColor={theme.colors.textMuted}
+          />
+        </View>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textMuted }]}>Categoria</Text>
         <View style={styles.categoryWrap}>
           {builtInCategories.map((category) => (
-            <Pressable key={category} onPress={() => setCategoryName(category)} style={[styles.chip, { borderColor: categoryName === category ? theme.colors.primary : theme.colors.borderSoft }]}>
-              <Text style={{ color: theme.colors.text }}>{category}</Text>
+            <Pressable
+              key={category}
+              onPress={() => setCategoryName(category)}
+              style={[styles.chip, { backgroundColor: categoryName === category ? theme.colors.cardAlt : "transparent", borderColor: categoryName === category ? theme.colors.primary : theme.colors.borderSoft }]}
+            >
+              <Text style={[styles.chipLabel, { color: categoryName === category ? theme.colors.primary : theme.colors.text }]}>{category}</Text>
             </Pressable>
           ))}
         </View>
-        <TextInput
-          placeholder="Data (YYYY-MM-DD)"
-          value={date}
-          onChangeText={setDate}
-          style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
-          placeholderTextColor={theme.colors.textMuted}
-        />
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.colors.textMuted }]}>Data</Text>
+          <TextInput
+            placeholder="Data (YYYY-MM-DD)"
+            value={date}
+            onChangeText={setDate}
+            style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
+            placeholderTextColor={theme.colors.textMuted}
+          />
+        </View>
 
         {type === "expense" ? (
           <Pressable style={styles.switchRow} onPress={() => setIsRecurring((value) => !value)}>
@@ -153,27 +182,32 @@ export function AddTransactionScreen() {
 
         {type === "expense" && isRecurring ? (
           <>
-            <Text style={{ color: theme.colors.text }}>Frequência</Text>
-            <View style={styles.row}>
-              <Pressable onPress={() => setFrequency("weekly")}><Text style={{ color: frequency === "weekly" ? theme.colors.primary : theme.colors.textMuted }}>Semanal</Text></Pressable>
-              <Pressable onPress={() => setFrequency("monthly")}><Text style={{ color: frequency === "monthly" ? theme.colors.primary : theme.colors.textMuted }}>Mensal</Text></Pressable>
-              <Pressable onPress={() => setFrequency("yearly")}><Text style={{ color: frequency === "yearly" ? theme.colors.primary : theme.colors.textMuted }}>Anual</Text></Pressable>
+            <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>Frequência</Text>
+            <View style={[styles.row, isCompact && styles.rowWrap]}>
+              <Pressable onPress={() => setFrequency("weekly")} style={[styles.segmentButton, { backgroundColor: frequency === "weekly" ? theme.colors.cardAlt : "transparent", borderColor: frequency === "weekly" ? theme.colors.primary : theme.colors.borderSoft }]}><Text style={[styles.segmentLabel, { color: frequency === "weekly" ? theme.colors.primary : theme.colors.textMuted }]}>Semanal</Text></Pressable>
+              <Pressable onPress={() => setFrequency("monthly")} style={[styles.segmentButton, { backgroundColor: frequency === "monthly" ? theme.colors.cardAlt : "transparent", borderColor: frequency === "monthly" ? theme.colors.primary : theme.colors.borderSoft }]}><Text style={[styles.segmentLabel, { color: frequency === "monthly" ? theme.colors.primary : theme.colors.textMuted }]}>Mensal</Text></Pressable>
+              <Pressable onPress={() => setFrequency("yearly")} style={[styles.segmentButton, { backgroundColor: frequency === "yearly" ? theme.colors.cardAlt : "transparent", borderColor: frequency === "yearly" ? theme.colors.primary : theme.colors.borderSoft }]}><Text style={[styles.segmentLabel, { color: frequency === "yearly" ? theme.colors.primary : theme.colors.textMuted }]}>Anual</Text></Pressable>
             </View>
-            <Text style={{ color: theme.colors.text }}>Data de início</Text>
-            <TextInput
-              placeholder="Data de início"
-              value={date}
-              onChangeText={setDate}
-              style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
-              placeholderTextColor={theme.colors.textMuted}
-            />
-            <TextInput
-              placeholder="Data final (opcional)"
-              value={endDate}
-              onChangeText={setEndDate}
-              style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
-              placeholderTextColor={theme.colors.textMuted}
-            />
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>Data de início</Text>
+              <TextInput
+                placeholder="Data de início"
+                value={date}
+                onChangeText={setDate}
+                style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
+                placeholderTextColor={theme.colors.textMuted}
+              />
+            </View>
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>Data final</Text>
+              <TextInput
+                placeholder="Data final (opcional)"
+                value={endDate}
+                onChangeText={setEndDate}
+                style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
+                placeholderTextColor={theme.colors.textMuted}
+              />
+            </View>
           </>
         ) : null}
 
@@ -200,11 +234,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md
   },
+  rowWrap: {
+    flexWrap: "wrap"
+  },
+  fieldGroup: {
+    gap: spacing.xs
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: "600"
+  },
   input: {
     borderWidth: 1,
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md
+  },
+  segmentButton: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    minHeight: 38,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs
+  },
+  segmentLabel: {
+    fontSize: 13,
+    fontWeight: "700"
   },
   categoryWrap: {
     flexDirection: "row",
@@ -217,13 +273,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs
   },
+  chipLabel: {
+    fontSize: 13,
+    fontWeight: "600"
+  },
   switchRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center"
   },
   actions: {
-    gap: spacing.sm
+    gap: spacing.sm,
+    marginTop: spacing.xs
   },
   button: {
     borderRadius: radii.md,

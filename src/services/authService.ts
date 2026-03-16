@@ -38,6 +38,18 @@ export function mapAuthError(error: unknown) {
   if (message.includes("local-account-not-found")) {
     return "Nenhuma conta encontrada para este email. Crie seu primeiro acesso.";
   }
+  if (message.includes("biometric-not-available")) {
+    return "A biometria não está disponível neste aparelho.";
+  }
+  if (message.includes("biometric-not-configured")) {
+    return "Entre com email e senha uma vez para ativar a biometria neste aparelho.";
+  }
+  if (message.includes("biometric-cancelled")) {
+    return "A autenticação biométrica foi cancelada.";
+  }
+  if (message.includes("biometric-failed")) {
+    return "Não foi possível validar sua biometria.";
+  }
   if (message.includes("email-already-in-use")) {
     return "Este email já está em uso.";
   }

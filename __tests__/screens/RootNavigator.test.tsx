@@ -10,6 +10,7 @@ jest.mock("@/context/AuthSessionContext", () => ({
 
 jest.mock("@/context/ThemeContext", () => ({
   useAppTheme: () => ({
+    isDark: false,
     theme: {
       colors: {
         card: "#111827",

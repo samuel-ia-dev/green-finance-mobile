@@ -34,6 +34,9 @@ export function ForgotPasswordScreen({ navigation }: Props) {
           placeholder="Email"
           value={email}
           onChangeText={setEmail}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
           style={[styles.input, { backgroundColor: theme.colors.cardAlt, color: theme.colors.text, borderColor: theme.colors.borderSoft }]}
           placeholderTextColor={theme.colors.textMuted}
         />

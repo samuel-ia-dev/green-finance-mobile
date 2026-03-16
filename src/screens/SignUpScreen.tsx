@@ -4,6 +4,7 @@ import { ScreenShell } from "@/components/ScreenShell";
 import { SectionCard } from "@/components/SectionCard";
 import { useAppTheme } from "@/context/ThemeContext";
 import { authService, mapAuthError } from "@/services/authService";
+import { biometricAuthService } from "@/services/biometricAuthService";
 import { radii, spacing } from "@/theme/tokens";
 
 type Props = {
@@ -23,6 +24,7 @@ export function SignUpScreen({ navigation }: Props) {
     try {
       setError("");
       await authService.register(email, password);
+      await biometricAuthService.rememberCredentials(email, password).catch(() => false);
     } catch (currentError) {
       setError(mapAuthError(currentError));
     }
@@ -35,6 +37,9 @@ export function SignUpScreen({ navigation }: Props) {
           placeholder="Email"
           value={email}
           onChangeText={setEmail}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
           style={[styles.input, { backgroundColor: theme.colors.cardAlt, color: theme.colors.text, borderColor: theme.colors.borderSoft }]}
           placeholderTextColor={theme.colors.textMuted}
         />

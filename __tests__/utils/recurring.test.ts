@@ -1,4 +1,4 @@
-import { buildRecurringInstallments, resolveRecurringEndDate, shouldGenerateRecurringInstance } from "@/utils/recurring";
+import { buildRecurringInstallments, isSameRecurringSeries, resolveRecurringEndDate, shouldGenerateRecurringInstance } from "@/utils/recurring";
 import { RecurringConfig } from "@/types/finance";
 
 const monthlyConfig: RecurringConfig = {
@@ -111,5 +111,37 @@ describe("recurring utils", () => {
       "2026-12-10"
     ]);
     expect(installments.every((transaction) => transaction.recurringEndDate === "2026-12-31")).toBe(true);
+  });
+
+  it("matches recurring entries from the same future month even without the parent id", () => {
+    expect(
+      isSameRecurringSeries(
+        {
+          id: "root-1-2026-04-10",
+          userId: "user-1",
+          type: "expense",
+          amount: 120,
+          categoryId: "housing",
+          description: "Internet",
+          date: "2026-04-10",
+          isRecurring: true,
+          recurringFrequency: "monthly",
+          recurringStartDate: "2026-03-10",
+          parentRecurringId: "root-1"
+        },
+        {
+          id: "legacy-dup-2026-04-10",
+          userId: "user-1",
+          type: "expense",
+          amount: 120,
+          categoryId: "housing",
+          description: "Internet",
+          date: "2026-04-10",
+          isRecurring: true,
+          recurringFrequency: "monthly",
+          recurringStartDate: "2026-03-10"
+        }
+      )
+    ).toBe(true);
   });
 });

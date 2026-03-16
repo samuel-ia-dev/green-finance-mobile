@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAppTheme } from "@/context/ThemeContext";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { DashboardSummary } from "@/types/finance";
 import { formatCurrency } from "@/utils/format";
 import { palette, radii, spacing } from "@/theme/tokens";
@@ -39,6 +40,7 @@ const healthMeta: Record<
 
 export function SummaryHero({ balance, monthlyIncome, monthlyExpenses, healthStatus }: SummaryHeroProps) {
   const { theme } = useAppTheme();
+  const { cardPadding, isCompact } = useResponsiveLayout();
   const health = healthMeta[healthStatus];
   const commitmentRatio = monthlyIncome > 0 ? Math.min(monthlyExpenses / monthlyIncome, 1) : monthlyExpenses > 0 ? 1 : 0;
   const commitmentPercent = Math.round(commitmentRatio * 100);
@@ -50,10 +52,10 @@ export function SummaryHero({ balance, monthlyIncome, monthlyExpenses, healthSta
         : "Sem movimentação suficiente para medir a saúde financeira deste mês";
 
   return (
-    <LinearGradient colors={[theme.colors.heroStart, theme.colors.heroEnd]} style={styles.hero}>
+    <LinearGradient colors={[theme.colors.heroStart, theme.colors.heroEnd]} style={[styles.hero, { padding: cardPadding }]}>
       <Text style={styles.caption}>Saldo do mês</Text>
-      <Text style={styles.balance}>{formatCurrency(balance)}</Text>
-      <View style={styles.stats}>
+      <Text style={[styles.balance, isCompact && styles.balanceCompact]}>{formatCurrency(balance)}</Text>
+      <View style={[styles.stats, isCompact && styles.statsCompact]}>
         <View>
           <Text style={styles.caption}>Receitas do mês</Text>
           <Text style={styles.stat}>{formatCurrency(monthlyIncome)}</Text>
@@ -64,14 +66,14 @@ export function SummaryHero({ balance, monthlyIncome, monthlyExpenses, healthSta
         </View>
       </View>
       <View style={[styles.healthCard, { backgroundColor: "rgba(11, 16, 32, 0.24)", borderColor: "rgba(255, 255, 255, 0.12)" }]}>
-        <View style={styles.healthHeader}>
+        <View style={[styles.healthHeader, isCompact && styles.healthHeaderCompact]}>
           <Text style={styles.healthLabel}>Saúde financeira</Text>
           <View style={[styles.healthBadge, { borderColor: health.accentColor, backgroundColor: `${health.accentColor}22` }]}>
             <View style={[styles.healthDot, { backgroundColor: health.accentColor }]} />
             <Text style={[styles.healthBadgeText, { color: health.accentColor }]}>{health.label}</Text>
           </View>
         </View>
-        <Text style={styles.healthSummary}>{monthlySnapshot}</Text>
+        <Text style={[styles.healthSummary, isCompact && styles.healthSummaryCompact]}>{monthlySnapshot}</Text>
         <View style={[styles.healthTrack, { backgroundColor: "rgba(255, 255, 255, 0.14)" }]}>
           <View
             style={[
@@ -83,7 +85,7 @@ export function SummaryHero({ balance, monthlyIncome, monthlyExpenses, healthSta
             ]}
           />
         </View>
-        <View style={styles.healthFooter}>
+        <View style={[styles.healthFooter, isCompact && styles.healthFooterCompact]}>
           <Text style={styles.healthMeta}>Comprometimento: {commitmentPercent}%</Text>
           <Text style={styles.healthMeta}>{health.tone}</Text>
         </View>
@@ -95,7 +97,6 @@ export function SummaryHero({ balance, monthlyIncome, monthlyExpenses, healthSta
 const styles = StyleSheet.create({
   hero: {
     borderRadius: radii.lg,
-    padding: spacing.lg,
     gap: spacing.xs
   },
   caption: {
@@ -107,10 +108,16 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "800"
   },
+  balanceCompact: {
+    fontSize: 24
+  },
   stats: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: spacing.sm
+  },
+  statsCompact: {
+    flexDirection: "column"
   },
   stat: {
     color: "#FFFFFF",
@@ -129,6 +136,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     gap: spacing.sm
+  },
+  healthHeaderCompact: {
+    alignItems: "flex-start",
+    flexDirection: "column"
   },
   healthLabel: {
     color: "#E2E8F0",
@@ -158,6 +169,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18
   },
+  healthSummaryCompact: {
+    fontSize: 12,
+    lineHeight: 17
+  },
   healthTrack: {
     borderRadius: radii.pill,
     height: 8,
@@ -169,6 +184,9 @@ const styles = StyleSheet.create({
   },
   healthFooter: {
     gap: 4
+  },
+  healthFooterCompact: {
+    gap: spacing.xs
   },
   healthMeta: {
     color: "#D1FAE5",

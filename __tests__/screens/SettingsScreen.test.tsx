@@ -1,6 +1,7 @@
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { SettingsScreen } from "@/screens/SettingsScreen";
 import { authService } from "@/services/authService";
+import { biometricAuthService } from "@/services/biometricAuthService";
 import { exportService } from "@/services/exportService";
 import { useFinanceStore } from "@/store/useFinanceStore";
 
@@ -21,9 +22,23 @@ jest.mock("@/services/authService", () => ({
   }
 }));
 
+jest.mock("@/services/biometricAuthService", () => ({
+  biometricAuthService: {
+    getStatus: jest.fn(),
+    rememberCredentials: jest.fn(),
+    clearCredentials: jest.fn(),
+    loginWithBiometrics: jest.fn()
+  }
+}));
+
 describe("SettingsScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (biometricAuthService.getStatus as jest.Mock).mockResolvedValue({
+      isAvailable: true,
+      isEnabled: true,
+      label: "digital"
+    });
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-03-11T12:00:00Z"));
     useFinanceStore.setState({
@@ -68,17 +83,25 @@ describe("SettingsScreen", () => {
     jest.useRealTimers();
   });
 
-  it("renders export actions, theme switch and logout in the footer", () => {
+  it("renders export actions, theme switch, biometric controls and logout in the footer", async () => {
     const screen = render(<SettingsScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(screen.getByText("Exportar CSV")).toBeTruthy();
     expect(screen.getByText("Exportar PDF")).toBeTruthy();
     expect(screen.getByText("Sair")).toBeTruthy();
+    expect(screen.getByText("Desativar biometria")).toBeTruthy();
 
     fireEvent(screen.getByRole("switch"), "valueChange", true);
+    await act(async () => {
+      fireEvent.press(screen.getByText("Desativar biometria"));
+    });
     fireEvent.press(screen.getByText("Sair"));
 
     expect(screen.getByText("Modo escuro")).toBeTruthy();
+    expect(biometricAuthService.clearCredentials).toHaveBeenCalled();
     expect(authService.logout).toHaveBeenCalled();
   });
 

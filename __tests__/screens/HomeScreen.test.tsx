@@ -100,6 +100,23 @@ jest.mock("@/store/useFinanceStore", () => ({
             isPaid: false,
             createdAt: "2026-04-08T10:00:00.000Z",
             updatedAt: "2026-04-08T10:00:00.000Z"
+          },
+          {
+            id: "5",
+            userId: "user-1",
+            categoryId: "housing",
+            categoryName: "Moradia",
+            description: "Internet",
+            amount: 120,
+            type: "expense",
+            date: "2026-04-10",
+            isRecurring: true,
+            recurringFrequency: "monthly",
+            recurringStartDate: "2026-03-10",
+            parentRecurringId: "1",
+            isPaid: false,
+            createdAt: "2026-04-10T10:00:00.000Z",
+            updatedAt: "2026-04-10T10:00:00.000Z"
           }
         ],
         goals: [],
@@ -183,11 +200,11 @@ describe("HomeScreen", () => {
     expect(screen.getByText("Comprometimento")).toBeTruthy();
     expect(screen.getByText("6%")).toBeTruthy();
     expect(screen.getByText("Maior categoria")).toBeTruthy();
-    expect(screen.getByText("Despesas recorrentes de Março 2026")).toBeTruthy();
-    expect(screen.getByText("Despesas lançadas em Março 2026")).toBeTruthy();
+    expect(screen.getByText("Despesas recorrentes salvas")).toBeTruthy();
+    expect(screen.getByText("Contas de Março 2026")).toBeTruthy();
     expect(screen.getByTestId("launched-expenses-scroll")).toBeTruthy();
-    expect(screen.getAllByText("Internet").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Aluguel").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Internet")).toHaveLength(1);
+    expect(screen.getAllByText("Aluguel")).toHaveLength(1);
     expect(screen.getByText("Mercado")).toBeTruthy();
     expect(screen.queryByText("Plano")).toBeNull();
     expect(screen.queryByText("Pagamento")).toBeNull();
@@ -233,10 +250,11 @@ describe("HomeScreen", () => {
     fireEvent.press(screen.getByLabelText("Ano anterior"));
     fireEvent.press(screen.getByLabelText("Selecionar Abril de 2026"));
 
-    expect(screen.getByText("Despesas lançadas em Abril 2026")).toBeTruthy();
+    expect(screen.getByText("Abril 2026")).toBeTruthy();
+    expect(screen.getByText("Contas de Abril 2026")).toBeTruthy();
     expect(screen.getByText("Plano")).toBeTruthy();
+    expect(screen.getAllByText("Internet")).toHaveLength(1);
     expect(screen.queryByText("Mercado")).toBeNull();
-    expect(screen.queryByText("Internet")).toBeNull();
   });
 
   it("opens the add screen in editing mode from the expense list", () => {

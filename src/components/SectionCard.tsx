@@ -1,6 +1,7 @@
 import { PropsWithChildren } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useAppTheme } from "@/context/ThemeContext";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { radii, spacing } from "@/theme/tokens";
 
 type SectionCardProps = PropsWithChildren<{
@@ -10,11 +11,12 @@ type SectionCardProps = PropsWithChildren<{
 
 export function SectionCard({ title, subtitle, children }: SectionCardProps) {
   const { theme } = useAppTheme();
+  const { cardPadding, isCompact } = useResponsiveLayout();
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft }]}>
-      {title ? <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text> : null}
-      {subtitle ? <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>{subtitle}</Text> : null}
+    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft, padding: cardPadding }]}>
+      {title ? <Text style={[styles.title, isCompact && styles.titleCompact, { color: theme.colors.text }]}>{title}</Text> : null}
+      {subtitle ? <Text style={[styles.subtitle, isCompact && styles.subtitleCompact, { color: theme.colors.textMuted }]}>{subtitle}</Text> : null}
       {children}
     </View>
   );
@@ -23,7 +25,6 @@ export function SectionCard({ title, subtitle, children }: SectionCardProps) {
 const styles = StyleSheet.create({
   card: {
     borderRadius: radii.lg,
-    padding: spacing.md,
     borderWidth: 1,
     gap: spacing.xs
   },
@@ -31,7 +32,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700"
   },
+  titleCompact: {
+    fontSize: 15
+  },
   subtitle: {
-    fontSize: 12
+    fontSize: 12,
+    lineHeight: 18
+  },
+  subtitleCompact: {
+    fontSize: 11,
+    lineHeight: 16
   }
 });

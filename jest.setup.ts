@@ -2,6 +2,20 @@ import "@testing-library/jest-native/extend-expect";
 
 jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
 
+jest.mock("react-native-safe-area-context", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+
+  return {
+    SafeAreaProvider: ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children),
+    SafeAreaConsumer: ({ children }: { children: (insets: { top: number; right: number; bottom: number; left: number }) => React.ReactNode }) =>
+      children({ top: 0, right: 0, bottom: 0, left: 0 }),
+    SafeAreaView: ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children),
+    useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+    useSafeAreaFrame: () => ({ x: 0, y: 0, width: 390, height: 844 })
+  };
+});
+
 jest.mock("expo-sharing", () => ({
   isAvailableAsync: jest.fn().mockResolvedValue(true),
   shareAsync: jest.fn().mockResolvedValue(undefined)
@@ -14,6 +28,26 @@ jest.mock("expo-file-system", () => ({
 
 jest.mock("expo-print", () => ({
   printToFileAsync: jest.fn().mockResolvedValue({ uri: "file:///mock-docs/report.pdf" })
+}));
+
+jest.mock("expo-local-authentication", () => ({
+  AuthenticationType: {
+    FINGERPRINT: 1,
+    FACIAL_RECOGNITION: 2,
+    IRIS: 3
+  },
+  hasHardwareAsync: jest.fn().mockResolvedValue(true),
+  supportedAuthenticationTypesAsync: jest.fn().mockResolvedValue([1]),
+  isEnrolledAsync: jest.fn().mockResolvedValue(true),
+  authenticateAsync: jest.fn().mockResolvedValue({ success: true })
+}));
+
+jest.mock("expo-secure-store", () => ({
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 1,
+  isAvailableAsync: jest.fn().mockResolvedValue(true),
+  getItemAsync: jest.fn().mockResolvedValue(null),
+  setItemAsync: jest.fn().mockResolvedValue(undefined),
+  deleteItemAsync: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock("@expo/vector-icons", () => ({

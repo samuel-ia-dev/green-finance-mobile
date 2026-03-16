@@ -85,11 +85,17 @@ export function HomeScreen() {
   const insights = dashboard.insights ?? [];
   const selectedYear = Number(selectedMonth.slice(0, 4));
   const selectedMonthLabel = formatCalendarPeriod(selectedMonth);
+  const recurringTransactions = useMemo(
+    () =>
+      [...transactions]
+        .filter((transaction) => transaction.type === "expense" && transaction.isRecurring && transaction.date.startsWith(selectedMonth))
+        .sort((left, right) => right.date.localeCompare(left.date) || right.createdAt.localeCompare(left.createdAt)),
+    [selectedMonth, transactions]
+  );
   const expenseTransactions = useMemo(
     () =>
       [...transactions]
-        .filter((transaction) => transaction.type === "expense")
-        .filter((transaction) => transaction.date.startsWith(selectedMonth))
+        .filter((transaction) => transaction.type === "expense" && !transaction.isRecurring && transaction.date.startsWith(selectedMonth))
         .sort((left, right) => right.date.localeCompare(left.date) || right.createdAt.localeCompare(left.createdAt)),
     [selectedMonth, transactions]
   );
@@ -213,11 +219,11 @@ export function HomeScreen() {
         />
       </SectionCard>
       <SectionCard
-        title={`Despesas recorrentes de ${selectedMonthLabel}`}
-        subtitle={`Total recorrente do mês: ${formatCurrency(dashboard.recurringTotal)}. Toque em PG para marcar pagamento.`}
+        title="Despesas recorrentes salvas"
+        subtitle={`Total recorrente em aberto em ${selectedMonthLabel}: ${formatCurrency(dashboard.recurringTotal)}. Só recorrências aparecem novamente nos meses seguintes.`}
       >
-        {dashboard.recurringTransactions.length ? (
-          dashboard.recurringTransactions.map((transaction) => (
+        {recurringTransactions.length ? (
+          recurringTransactions.map((transaction) => (
             <TransactionRow key={transaction.id} transaction={transaction} onTogglePaid={() => void handleTogglePaid(transaction)} />
           ))
         ) : (
@@ -225,8 +231,8 @@ export function HomeScreen() {
         )}
       </SectionCard>
       <SectionCard
-        title={`Despesas lançadas em ${selectedMonthLabel}`}
-        subtitle="Todas as despesas cadastradas do mês aparecem aqui. Receitas ficam fora dessa lista e o botão PG continua indicando pagamento."
+        title={`Contas de ${selectedMonthLabel}`}
+        subtitle="Cada mês mostra apenas os lançamentos comuns daquele período. As recorrências do mês ficam no card acima."
       >
         {expenseTransactions.length ? (
           <>

@@ -47,6 +47,10 @@ describe("authService", () => {
     expect(mapAuthError(new Error("auth/invalid-email"))).toBe("Digite um email válido.");
     expect(mapAuthError(new Error("auth/invalid-credential"))).toBe("Email ou senha inválidos.");
     expect(mapAuthError(new Error("auth/local-account-not-found"))).toBe("Nenhuma conta encontrada para este email. Crie seu primeiro acesso.");
+    expect(mapAuthError(new Error("auth/biometric-not-available"))).toBe("A biometria não está disponível neste aparelho.");
+    expect(mapAuthError(new Error("auth/biometric-not-configured"))).toBe("Entre com email e senha uma vez para ativar a biometria neste aparelho.");
+    expect(mapAuthError(new Error("auth/biometric-cancelled"))).toBe("A autenticação biométrica foi cancelada.");
+    expect(mapAuthError(new Error("auth/biometric-failed"))).toBe("Não foi possível validar sua biometria.");
     expect(mapAuthError(new Error("auth/email-already-in-use"))).toBe("Este email já está em uso.");
     expect(mapAuthError(new Error("auth/weak-password"))).toBe("Use uma senha mais forte.");
     expect(mapAuthError(new Error("random-error"))).toBe("Não foi possível concluir a autenticação.");

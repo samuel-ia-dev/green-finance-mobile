@@ -3,8 +3,10 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PlatformPressable } from "@react-navigation/elements";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthSession } from "@/context/AuthSessionContext";
 import { useAppTheme } from "@/context/ThemeContext";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { AddTransactionScreen } from "@/screens/AddTransactionScreen";
 import { ForgotPasswordScreen } from "@/screens/ForgotPasswordScreen";
 import { GoalsScreen } from "@/screens/GoalsScreen";
@@ -21,7 +23,7 @@ const Tab = createBottomTabNavigator<AppTabParamList>();
 
 type TabRouteName = keyof AppTabParamList;
 
-function AddTabButton({ style, ...props }: ComponentProps<typeof PlatformPressable>) {
+function AddTabButton({ compact, style, ...props }: ComponentProps<typeof PlatformPressable> & { compact: boolean }) {
   const { theme } = useAppTheme();
 
   return (
@@ -30,6 +32,7 @@ function AddTabButton({ style, ...props }: ComponentProps<typeof PlatformPressab
       style={[
         style,
         styles.addButton,
+        compact && styles.addButtonCompact,
         {
           backgroundColor: theme.colors.primary,
           borderColor: theme.colors.card,
@@ -114,34 +117,39 @@ function TabBarIcon({
 }
 
 function AppTabs() {
-  const { theme } = useAppTheme();
-  const tabSurfaceColor = `${theme.colors.primary}${theme.isDark ? "20" : "16"}`;
-  const tabOutlineColor = `${theme.colors.primary}${theme.isDark ? "40" : "24"}`;
+  const { isDark, theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const { isCompact } = useResponsiveLayout();
+  const tabSurfaceColor = `${theme.colors.primary}${isDark ? "20" : "16"}`;
+  const tabOutlineColor = `${theme.colors.primary}${isDark ? "40" : "24"}`;
+  const tabBarBottomPadding = Math.max(insets.bottom, isCompact ? 10 : 14);
+  const tabBarHeight = (isCompact ? 64 : 72) + tabBarBottomPadding;
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: theme.colors.card,
           borderTopColor: theme.colors.borderSoft,
           borderTopWidth: 1,
-          height: 88,
-          paddingTop: 6,
-          paddingBottom: 16,
-          paddingHorizontal: 8
+          height: tabBarHeight,
+          paddingTop: isCompact ? 4 : 6,
+          paddingBottom: tabBarBottomPadding,
+          paddingHorizontal: isCompact ? 6 : 8
         },
         tabBarItemStyle: {
-          paddingTop: 2,
+          paddingTop: isCompact ? 0 : 2,
           paddingBottom: 0
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: isCompact ? 10 : 11,
           fontWeight: "700",
           marginTop: 0
         },
         tabBarIconStyle: {
-          marginBottom: 1
+          marginBottom: isCompact ? 0 : 1
         },
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textMuted,
@@ -163,7 +171,7 @@ function AppTabs() {
         component={AddTransactionScreen}
         options={{
           title: "Adicionar",
-          tabBarButton: (props) => <AddTabButton {...props} />
+          tabBarButton: (props) => <AddTabButton compact={isCompact} {...props} />
         }}
       />
       <Tab.Screen name="Goals" component={GoalsScreen} options={{ title: "Metas" }} />
@@ -220,6 +228,11 @@ const styles = StyleSheet.create({
       height: 10
     },
     elevation: 8
+  },
+  addButtonCompact: {
+    height: 62,
+    marginTop: -22,
+    width: 62
   },
   clockHandDiagonal: {
     borderRadius: radii.pill,

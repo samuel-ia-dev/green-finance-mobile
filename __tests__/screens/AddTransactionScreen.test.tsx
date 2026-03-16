@@ -51,6 +51,18 @@ describe("AddTransactionScreen", () => {
     expect(screen.getByText("Data de início")).toBeTruthy();
   });
 
+  it("uses a numeric input for the amount field", () => {
+    const screen = render(<AddTransactionScreen />);
+    const amountInput = screen.getByPlaceholderText("Valor");
+
+    expect(amountInput.props.inputMode).toBe("decimal");
+    expect(amountInput.props.autoComplete).toBe("off");
+    expect(amountInput.props.autoCorrect).toBe(false);
+    expect(amountInput.props.importantForAutofill).toBe("no");
+    expect(amountInput.props.spellCheck).toBe(false);
+    expect(amountInput.props.textContentType).toBe("none");
+  });
+
   it("creates a new expense as unpaid by default", async () => {
     const screen = render(<AddTransactionScreen />);
 

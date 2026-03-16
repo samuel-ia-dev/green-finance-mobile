@@ -17,6 +17,11 @@ type ShouldGenerateRecurringInput = {
   lastGeneratedDate: string;
 };
 
+type RecurringSeriesInput = Pick<
+  Transaction,
+  "amount" | "categoryId" | "date" | "description" | "id" | "isRecurring" | "parentRecurringId" | "recurringFrequency" | "recurringStartDate" | "type" | "userId"
+>;
+
 function addStep(date: Date, frequency: RecurringFrequency) {
   const next = new Date(date.getTime());
   if (frequency === "weekly") {
@@ -41,6 +46,48 @@ export function resolveRecurringEndDate(startDate: string, endDate?: string) {
   }
 
   return `${startDate.slice(0, 4)}-12-31`;
+}
+
+export function buildRecurringSeriesSignature(input: RecurringSeriesInput) {
+  if (!input.isRecurring || input.type !== "expense") {
+    return null;
+  }
+
+  return [
+    input.userId,
+    input.recurringStartDate ?? input.date,
+    input.recurringFrequency ?? "",
+    input.categoryId,
+    input.description.trim().toLowerCase(),
+    input.amount
+  ].join("|");
+}
+
+export function isSameRecurringSeries(left: RecurringSeriesInput, right: RecurringSeriesInput) {
+  if (!left.isRecurring || !right.isRecurring || left.type !== "expense" || right.type !== "expense") {
+    return false;
+  }
+
+  if (left.id === right.id) {
+    return true;
+  }
+
+  if (left.parentRecurringId && right.parentRecurringId && left.parentRecurringId === right.parentRecurringId) {
+    return true;
+  }
+
+  if (left.parentRecurringId && left.parentRecurringId === right.id) {
+    return true;
+  }
+
+  if (right.parentRecurringId && right.parentRecurringId === left.id) {
+    return true;
+  }
+
+  const leftSignature = buildRecurringSeriesSignature(left);
+  const rightSignature = buildRecurringSeriesSignature(right);
+
+  return Boolean(leftSignature && rightSignature && leftSignature === rightSignature);
 }
 
 export function buildRecurringInstallments(input: BuildRecurringInstallmentsInput): Transaction[] {

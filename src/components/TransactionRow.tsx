@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Transaction } from "@/types/finance";
 import { formatCurrency, formatShortDate } from "@/utils/format";
 import { useAppTheme } from "@/context/ThemeContext";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { palette, radii, spacing } from "@/theme/tokens";
 
 type TransactionRowProps = {
@@ -26,45 +27,48 @@ function PaymentFlagIcon({ isPaid }: { isPaid: boolean }) {
 
 export function TransactionRow({ transaction, onEdit, onDelete, onTogglePaid }: TransactionRowProps) {
   const { isDark, theme } = useAppTheme();
+  const { isCompact } = useResponsiveLayout();
   const deleteActionBackground = isDark ? "rgba(239, 68, 68, 0.18)" : "rgba(239, 68, 68, 0.12)";
   const isExpense = transaction.type === "expense";
   const isPaid = Boolean(transaction.isPaid);
   const amountColor = transaction.type === "income" ? theme.colors.success : isPaid ? theme.colors.success : theme.colors.text;
 
   return (
-    <View style={[styles.row, { borderBottomColor: theme.colors.borderSoft }]}>
-      <View style={styles.textBlock}>
+    <View style={[styles.row, isCompact && styles.rowCompact, { borderBottomColor: theme.colors.borderSoft }]}>
+      <View style={[styles.textBlock, isCompact && styles.textBlockCompact]}>
         <View style={styles.titleRow}>
-          <Text style={[styles.title, { color: theme.colors.text }]}>{transaction.description}</Text>
+          <Text numberOfLines={2} style={[styles.title, { color: theme.colors.text }]}>{transaction.description}</Text>
           {transaction.isRecurring ? <Text style={styles.recurrent}>🔁</Text> : null}
         </View>
-        <Text style={[styles.caption, { color: theme.colors.textMuted }]}>{transaction.categoryName}</Text>
+        <Text numberOfLines={1} style={[styles.caption, { color: theme.colors.textMuted }]}>{transaction.categoryName}</Text>
       </View>
-      <View style={styles.side}>
-        <View style={styles.amountRow}>
-          {isExpense ? (
-            <Pressable
-              accessibilityLabel={isPaid ? `Marcar ${transaction.description} como pendente` : `Marcar ${transaction.description} como paga`}
-              accessibilityRole={onTogglePaid ? "button" : undefined}
-              accessibilityState={{ selected: isPaid }}
-              disabled={!onTogglePaid}
-              hitSlop={8}
-              onPress={onTogglePaid}
-              style={({ pressed }) => [
-                styles.paymentToggle,
-                {
-                  opacity: onTogglePaid && pressed ? 0.72 : 1
-                }
-              ]}
-            >
-              <PaymentFlagIcon isPaid={isPaid} />
-            </Pressable>
-          ) : null}
-          <Text style={[styles.amount, { color: amountColor }]}>
-            {transaction.type === "income" ? "+" : "-"} {formatCurrency(transaction.amount)}
-          </Text>
+      <View style={[styles.side, isCompact && styles.sideCompact]}>
+        <View style={[styles.metaBlock, isCompact && styles.metaBlockCompact]}>
+          <View style={styles.amountRow}>
+            {isExpense ? (
+              <Pressable
+                accessibilityLabel={isPaid ? `Marcar ${transaction.description} como pendente` : `Marcar ${transaction.description} como paga`}
+                accessibilityRole={onTogglePaid ? "button" : undefined}
+                accessibilityState={{ selected: isPaid }}
+                disabled={!onTogglePaid}
+                hitSlop={8}
+                onPress={onTogglePaid}
+                style={({ pressed }) => [
+                  styles.paymentToggle,
+                  {
+                    opacity: onTogglePaid && pressed ? 0.72 : 1
+                  }
+                ]}
+              >
+                <PaymentFlagIcon isPaid={isPaid} />
+              </Pressable>
+            ) : null}
+            <Text numberOfLines={1} style={[styles.amount, { color: amountColor }]}>
+              {transaction.type === "income" ? "+" : "-"} {formatCurrency(transaction.amount)}
+            </Text>
+          </View>
+          <Text style={[styles.caption, { color: theme.colors.textMuted }]}>{formatShortDate(transaction.date)}</Text>
         </View>
-        <Text style={[styles.caption, { color: theme.colors.textMuted }]}>{formatShortDate(transaction.date)}</Text>
         {(onEdit || onDelete) ? (
           <View style={styles.actions}>
             {onEdit ? (
@@ -116,9 +120,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs + 2,
     borderBottomWidth: StyleSheet.hairlineWidth
   },
+  rowCompact: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+    gap: spacing.xs
+  },
   textBlock: {
     flex: 1,
     gap: 4
+  },
+  textBlockCompact: {
+    width: "100%"
   },
   titleRow: {
     flexDirection: "row",
@@ -126,6 +138,7 @@ const styles = StyleSheet.create({
     gap: 4
   },
   title: {
+    flexShrink: 1,
     fontSize: 14,
     fontWeight: "600"
   },
@@ -138,6 +151,21 @@ const styles = StyleSheet.create({
   side: {
     alignItems: "flex-end",
     gap: 2
+  },
+  sideCompact: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    width: "100%"
+  },
+  metaBlock: {
+    alignItems: "flex-end",
+    gap: 2
+  },
+  metaBlockCompact: {
+    alignItems: "flex-start",
+    flex: 1
   },
   amountRow: {
     flexDirection: "row",
@@ -173,8 +201,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs
   },
   iconAction: {
-    width: 20,
-    height: 20,
+    width: 28,
+    height: 28,
     borderRadius: radii.pill,
     alignItems: "center",
     justifyContent: "center"

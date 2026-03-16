@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { Category, DashboardSummary, FinanceHydrationPayload, Goal, Transaction, UserSettings } from "@/types/finance";
+import { isSameRecurringSeries } from "@/utils/recurring";
 import { buildDashboardSummary } from "@/utils/dashboard";
 import { getMonthKey } from "@/utils/format";
 
@@ -47,36 +48,39 @@ function computeDashboard(transactions: Transaction[], goals: Goal[]) {
   return buildDashboardSummary(transactions, goals, getMonthKey());
 }
 
-function getTransactionDedupKey(transaction: Transaction) {
-  if (transaction.isRecurring && transaction.type === "expense") {
-    return `recurring:${transaction.parentRecurringId ?? transaction.id}:${transaction.date}`;
-  }
+function shouldReplaceTransaction(next: Transaction, current: Transaction) {
+  return next.updatedAt > current.updatedAt || (next.updatedAt === current.updatedAt && next.createdAt > current.createdAt);
+}
 
-  return `id:${transaction.id}`;
+function findDuplicateTransactionIndex(transactions: Transaction[], candidate: Transaction) {
+  return transactions.findIndex((current) => {
+    if (current.isRecurring && candidate.isRecurring && current.type === "expense" && candidate.type === "expense") {
+      return current.date === candidate.date && isSameRecurringSeries(current, candidate);
+    }
+
+    return current.id === candidate.id;
+  });
 }
 
 function dedupeTransactions(transactions: Transaction[]) {
-  const uniqueTransactions = new Map<string, Transaction>();
+  const uniqueTransactions: Transaction[] = [];
 
   transactions.forEach((transaction) => {
-    const dedupKey = getTransactionDedupKey(transaction);
-    const current = uniqueTransactions.get(dedupKey);
+    const duplicateIndex = findDuplicateTransactionIndex(uniqueTransactions, transaction);
 
-    if (!current) {
-      uniqueTransactions.set(dedupKey, transaction);
+    if (duplicateIndex === -1) {
+      uniqueTransactions.push(transaction);
       return;
     }
 
-    const shouldReplace =
-      transaction.updatedAt > current.updatedAt ||
-      (transaction.updatedAt === current.updatedAt && transaction.createdAt > current.createdAt);
+    const current = uniqueTransactions[duplicateIndex];
 
-    if (shouldReplace) {
-      uniqueTransactions.set(dedupKey, transaction);
+    if (shouldReplaceTransaction(transaction, current)) {
+      uniqueTransactions[duplicateIndex] = transaction;
     }
   });
 
-  return Array.from(uniqueTransactions.values());
+  return uniqueTransactions;
 }
 
 export const useFinanceStore = create<FinanceState>((set) => ({

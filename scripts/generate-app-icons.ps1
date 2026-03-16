@@ -9,172 +9,358 @@ function New-PointF([double]$x, [double]$y) {
   return [System.Drawing.PointF]::new([float]$x, [float]$y)
 }
 
-function Draw-CircuitLine {
+function New-ScaledPoint {
   param(
-    [System.Drawing.Graphics]$Graphics,
+    [float]$OffsetX,
+    [float]$OffsetY,
+    [float]$Scale,
+    [double]$X,
+    [double]$Y
+  )
+
+  return [System.Drawing.PointF]::new(
+    [float]($OffsetX + ($Scale * $X)),
+    [float]($OffsetY + ($Scale * $Y))
+  )
+}
+
+function New-RoundedRectPath {
+  param(
     [float]$X,
     [float]$Y,
     [float]$Width,
-    [System.Drawing.Color]$Color
+    [float]$Height,
+    [float]$Radius
   )
 
-  $pen = [System.Drawing.Pen]::new($Color, 5)
-  $Graphics.DrawLine($pen, $X, $Y, $X + $Width, $Y)
-  $dotBrush = [System.Drawing.SolidBrush]::new($Color)
-  $Graphics.FillEllipse($dotBrush, $X + $Width + 10, $Y - 5, 10, 10)
-  $pen.Dispose()
-  $dotBrush.Dispose()
+  $diameter = $Radius * 2
+  $path = [System.Drawing.Drawing2D.GraphicsPath]::new()
+  $path.AddArc($X, $Y, $diameter, $diameter, 180, 90)
+  $path.AddArc($X + $Width - $diameter, $Y, $diameter, $diameter, 270, 90)
+  $path.AddArc($X + $Width - $diameter, $Y + $Height - $diameter, $diameter, $diameter, 0, 90)
+  $path.AddArc($X, $Y + $Height - $diameter, $diameter, $diameter, 90, 90)
+  $path.CloseFigure()
+  return $path
 }
 
-function Draw-Arrow {
+function Set-HighQualityDrawing {
   param(
-    [System.Drawing.Graphics]$Graphics,
-    [System.Drawing.Color]$GlowColor,
-    [System.Drawing.Color]$StrokeColor,
-    [System.Drawing.PointF[]]$Points
+    [System.Drawing.Graphics]$Graphics
   )
 
-  $glowPen = [System.Drawing.Pen]::new($GlowColor, 26)
-  $glowPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-  $strokePen = [System.Drawing.Pen]::new($StrokeColor, 10)
-  $strokePen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-  $Graphics.DrawLines($glowPen, $Points)
-  $Graphics.DrawLines($strokePen, $Points)
-  $glowPen.Dispose()
-  $strokePen.Dispose()
+  $Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  $Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  $Graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+  $Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+  $Graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+}
+
+function New-OutlinePen {
+  param(
+    [float]$Width
+  )
+
+  $pen = [System.Drawing.Pen]::new((New-Color 255 18 18 18), $Width)
+  $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+  $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+  $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+  return $pen
+}
+
+function Draw-Background {
+  param(
+    [System.Drawing.Graphics]$Graphics,
+    [int]$Size
+  )
+
+  $Graphics.Clear((New-Color 255 247 244 249))
+
+  $dotBrush = [System.Drawing.SolidBrush]::new((New-Color 64 188 184 192))
+  $sparkBrush = [System.Drawing.SolidBrush]::new((New-Color 255 20 20 20))
+
+  foreach ($row in 0..4) {
+    foreach ($column in 0..4) {
+      $Graphics.FillEllipse($dotBrush, $Size * (0.74 + ($column * 0.035)), $Size * (0.03 + ($row * 0.035)), $Size * 0.012, $Size * 0.012)
+    }
+  }
+
+  foreach ($row in 0..2) {
+    foreach ($column in 0..2) {
+      $Graphics.FillEllipse($dotBrush, $Size * (0.02 + ($column * 0.036)), $Size * (0.70 + ($row * 0.036)), $Size * 0.012, $Size * 0.012)
+    }
+  }
+
+  $sparklePoints = @(
+    @(0.07, 0.06),
+    @(0.83, 0.12),
+    @(0.11, 0.18)
+  )
+
+  foreach ($sparkle in $sparklePoints) {
+    $x = [float]($Size * $sparkle[0])
+    $y = [float]($Size * $sparkle[1])
+    $s = [float]($Size * 0.016)
+    $Graphics.FillRectangle($sparkBrush, $x + $s, $y, $s, $s)
+    $Graphics.FillRectangle($sparkBrush, $x, $y + $s, $s, $s)
+    $Graphics.FillRectangle($sparkBrush, $x + ($s * 2), $y + $s, $s, $s)
+    $Graphics.FillRectangle($sparkBrush, $x + $s, $y + ($s * 2), $s, $s)
+  }
+
+  $dotBrush.Dispose()
+  $sparkBrush.Dispose()
+}
+
+function Draw-Buildings {
+  param(
+    [System.Drawing.Graphics]$Graphics,
+    [float]$OffsetX,
+    [float]$OffsetY,
+    [float]$Scale,
+    [float]$Stroke
+  )
+
+  $outlinePen = New-OutlinePen $Stroke
+  $windowBrush = [System.Drawing.SolidBrush]::new((New-Color 255 55 55 55))
+  $leftBrush = [System.Drawing.SolidBrush]::new((New-Color 255 231 208 255))
+  $mainBrush = [System.Drawing.SolidBrush]::new((New-Color 255 250 250 250))
+  $houseBrush = [System.Drawing.SolidBrush]::new((New-Color 255 246 240 211))
+  $roofBrush = [System.Drawing.SolidBrush]::new((New-Color 255 247 222 54))
+
+  $leftPath = New-RoundedRectPath `
+    -X ([float]($OffsetX + ($Scale * 0.34))) `
+    -Y ([float]($OffsetY + ($Scale * 0.16))) `
+    -Width ([float]($Scale * 0.08)) `
+    -Height ([float]($Scale * 0.23)) `
+    -Radius ([float]($Scale * 0.014))
+  $Graphics.FillPath($leftBrush, $leftPath)
+  $Graphics.DrawPath($outlinePen, $leftPath)
+
+  $mainPath = New-RoundedRectPath `
+    -X ([float]($OffsetX + ($Scale * 0.43))) `
+    -Y ([float]($OffsetY + ($Scale * 0.09))) `
+    -Width ([float]($Scale * 0.14)) `
+    -Height ([float]($Scale * 0.30)) `
+    -Radius ([float]($Scale * 0.014))
+  $Graphics.FillPath($mainBrush, $mainPath)
+  $Graphics.DrawPath($outlinePen, $mainPath)
+
+  foreach ($row in 0..4) {
+    foreach ($column in 0..2) {
+      $Graphics.FillRectangle(
+        $windowBrush,
+        $OffsetX + ($Scale * (0.458 + ($column * 0.032))),
+        $OffsetY + ($Scale * (0.13 + ($row * 0.05))),
+        $Scale * 0.012,
+        $Scale * 0.018
+      )
+    }
+  }
+
+  $houseBody = New-RoundedRectPath `
+    -X ([float]($OffsetX + ($Scale * 0.64))) `
+    -Y ([float]($OffsetY + ($Scale * 0.28))) `
+    -Width ([float]($Scale * 0.16)) `
+    -Height ([float]($Scale * 0.12)) `
+    -Radius ([float]($Scale * 0.012))
+  $Graphics.FillPath($houseBrush, $houseBody)
+  $Graphics.DrawPath($outlinePen, $houseBody)
+
+  $roofPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+  $roofPath.AddPolygon([System.Drawing.PointF[]]@(
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.62 0.29),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.72 0.19),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.82 0.29)
+    ))
+  $Graphics.FillPath($roofBrush, $roofPath)
+  $Graphics.DrawPath($outlinePen, $roofPath)
+
+  $Graphics.DrawLine(
+    $outlinePen,
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.72 0.31),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.72 0.40)
+  )
+
+  $leftPath.Dispose()
+  $mainPath.Dispose()
+  $houseBody.Dispose()
+  $roofPath.Dispose()
+  $outlinePen.Dispose()
+  $windowBrush.Dispose()
+  $leftBrush.Dispose()
+  $mainBrush.Dispose()
+  $houseBrush.Dispose()
+  $roofBrush.Dispose()
+}
+
+function Draw-MoneyBag {
+  param(
+    [System.Drawing.Graphics]$Graphics,
+    [float]$OffsetX,
+    [float]$OffsetY,
+    [float]$Scale,
+    [float]$Stroke
+  )
+
+  $outlinePen = New-OutlinePen $Stroke
+  $bagBrush = [System.Drawing.SolidBrush]::new((New-Color 255 246 219 37))
+  $bandBrush = [System.Drawing.SolidBrush]::new((New-Color 255 217 189 23))
+  $crownBrush = [System.Drawing.SolidBrush]::new((New-Color 255 255 208 26))
+  $symbolBrush = [System.Drawing.SolidBrush]::new((New-Color 255 18 18 18))
+
+  $bagPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+  $bagPath.AddClosedCurve([System.Drawing.PointF[]]@(
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.10 0.42),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.08 0.32),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.14 0.21),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.34 0.21),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.41 0.32),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.38 0.42)
+    ), 0.28)
+  $Graphics.FillPath($bagBrush, $bagPath)
+  $Graphics.DrawPath($outlinePen, $bagPath)
+
+  $bandPath = New-RoundedRectPath `
+    -X ([float]($OffsetX + ($Scale * 0.17))) `
+    -Y ([float]($OffsetY + ($Scale * 0.19))) `
+    -Width ([float]($Scale * 0.15)) `
+    -Height ([float]($Scale * 0.04)) `
+    -Radius ([float]($Scale * 0.012))
+  $Graphics.FillPath($bandBrush, $bandPath)
+  $Graphics.DrawPath($outlinePen, $bandPath)
+
+  $crownPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+  $crownPath.AddPolygon([System.Drawing.PointF[]]@(
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.12 0.17),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.15 0.07),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.21 0.13),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.25 0.03),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.29 0.13),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.35 0.07),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.38 0.17),
+      (New-ScaledPoint $OffsetX $OffsetY $Scale 0.12 0.17)
+    ))
+  $Graphics.FillPath($crownBrush, $crownPath)
+  $Graphics.DrawPath($outlinePen, $crownPath)
+
+  $crownBase = New-RoundedRectPath `
+    -X ([float]($OffsetX + ($Scale * 0.12))) `
+    -Y ([float]($OffsetY + ($Scale * 0.16))) `
+    -Width ([float]($Scale * 0.26)) `
+    -Height ([float]($Scale * 0.035)) `
+    -Radius ([float]($Scale * 0.01))
+  $Graphics.FillPath($crownBrush, $crownBase)
+  $Graphics.DrawPath($outlinePen, $crownBase)
+
+  $font = [System.Drawing.Font]::new([System.Drawing.FontFamily]::GenericSansSerif, $Scale * 0.14, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+  $stringFormat = [System.Drawing.StringFormat]::new()
+  $stringFormat.Alignment = [System.Drawing.StringAlignment]::Center
+  $stringFormat.LineAlignment = [System.Drawing.StringAlignment]::Center
+
+  $Graphics.DrawString(
+    "$",
+    $font,
+    $symbolBrush,
+    [System.Drawing.RectangleF]::new(
+      [float]($OffsetX + ($Scale * 0.10)),
+      [float]($OffsetY + ($Scale * 0.23)),
+      [float]($Scale * 0.30),
+      [float]($Scale * 0.18)
+    ),
+    $stringFormat
+  )
+
+  $bagPath.Dispose()
+  $bandPath.Dispose()
+  $crownPath.Dispose()
+  $crownBase.Dispose()
+  $outlinePen.Dispose()
+  $bagBrush.Dispose()
+  $bandBrush.Dispose()
+  $crownBrush.Dispose()
+  $symbolBrush.Dispose()
+  $font.Dispose()
+  $stringFormat.Dispose()
 }
 
 function Draw-Hand {
   param(
     [System.Drawing.Graphics]$Graphics,
-    [System.Drawing.Color]$GlowColor,
-    [System.Drawing.Color]$StrokeColor
+    [float]$OffsetX,
+    [float]$OffsetY,
+    [float]$Scale,
+    [float]$Stroke
   )
 
-  $glowPen = [System.Drawing.Pen]::new($GlowColor, 30)
-  $glowPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-  $glowPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $glowPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+  $outlinePen = New-OutlinePen $Stroke
+  $detailPen = New-OutlinePen ([float]($Stroke * 0.45))
+  $handBrush = [System.Drawing.SolidBrush]::new((New-Color 255 250 250 250))
+  $sleeveBrush = [System.Drawing.SolidBrush]::new((New-Color 255 236 208 255))
 
-  $strokePen = [System.Drawing.Pen]::new($StrokeColor, 10)
-  $strokePen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-  $strokePen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $strokePen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+  $sleevePath = New-RoundedRectPath `
+    -X ([float]($OffsetX + ($Scale * 0.03))) `
+    -Y ([float]($OffsetY + ($Scale * 0.63))) `
+    -Width ([float]($Scale * 0.14)) `
+    -Height ([float]($Scale * 0.24)) `
+    -Radius ([float]($Scale * 0.03))
+  $Graphics.FillPath($sleeveBrush, $sleevePath)
+  $Graphics.DrawPath($outlinePen, $sleevePath)
 
-  $path = [System.Drawing.Drawing2D.GraphicsPath]::new()
-  $path.AddCurve([System.Drawing.PointF[]]@(
-      (New-PointF 215 765),
-      (New-PointF 300 705),
-      (New-PointF 420 675),
-      (New-PointF 575 680),
-      (New-PointF 745 705),
-      (New-PointF 865 770)
-    ), 0.4)
-  $Graphics.DrawPath($glowPen, $path)
-  $Graphics.DrawPath($strokePen, $path)
+  $handPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+  $handPath.AddBezier(
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.14 0.68),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.30 0.64),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.49 0.65),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.62 0.66)
+  )
+  $handPath.AddBezier(
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.62 0.66),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.73 0.66),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.82 0.59),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.89 0.53)
+  )
+  $handPath.AddBezier(
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.89 0.53),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.94 0.51),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.97 0.56),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.93 0.61)
+  )
+  $handPath.AddBezier(
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.93 0.61),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.89 0.68),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.78 0.74),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.62 0.78)
+  )
+  $handPath.AddBezier(
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.62 0.78),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.43 0.82),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.24 0.81),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.14 0.79)
+  )
+  $handPath.CloseFigure()
 
-  $thumbPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
-  $thumbPath.AddCurve([System.Drawing.PointF[]]@(
-      (New-PointF 525 670),
-      (New-PointF 470 615),
-      (New-PointF 420 600),
-      (New-PointF 370 625)
-    ), 0.4)
-  $Graphics.DrawPath($glowPen, $thumbPath)
-  $Graphics.DrawPath($strokePen, $thumbPath)
+  $Graphics.FillPath($handBrush, $handPath)
+  $Graphics.DrawPath($outlinePen, $handPath)
 
-  $palmFill = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(45, $StrokeColor))
-  $palmPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
-  $palmPath.AddClosedCurve([System.Drawing.PointF[]]@(
-      (New-PointF 245 768),
-      (New-PointF 335 718),
-      (New-PointF 495 690),
-      (New-PointF 675 703),
-      (New-PointF 810 742),
-      (New-PointF 855 790),
-      (New-PointF 790 828),
-      (New-PointF 610 835),
-      (New-PointF 390 820),
-      (New-PointF 275 798)
-    ), 0.35)
-  $Graphics.FillPath($palmFill, $palmPath)
-
-  $glowPen.Dispose()
-  $strokePen.Dispose()
-  $path.Dispose()
-  $thumbPath.Dispose()
-  $palmFill.Dispose()
-  $palmPath.Dispose()
-}
-
-function Draw-Coin {
-  param(
-    [System.Drawing.Graphics]$Graphics
+  $Graphics.DrawBezier(
+    $detailPen,
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.24 0.69),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.38 0.69),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.49 0.69),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.59 0.68)
   )
 
-  $coinRect = [System.Drawing.RectangleF]::new(322, 195, 380, 380)
-  $outerGlow = [System.Drawing.SolidBrush]::new((New-Color 35 64 190 255))
-  $ringGlowPen = [System.Drawing.Pen]::new((New-Color 120 62 198 255), 22)
-  $ringGlowPen.Alignment = [System.Drawing.Drawing2D.PenAlignment]::Center
-  $ringPen = [System.Drawing.Pen]::new((New-Color 255 156 234 255), 8)
-  $innerRingPen = [System.Drawing.Pen]::new((New-Color 255 113 201 255), 4)
-
-  $coinPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
-  $coinPath.AddEllipse($coinRect)
-  $Graphics.FillPath($outerGlow, $coinPath)
-  $Graphics.DrawEllipse($ringGlowPen, $coinRect)
-  $Graphics.DrawEllipse($ringPen, $coinRect)
-
-  $innerRect = [System.Drawing.RectangleF]::new(368, 240, 288, 288)
-  $Graphics.DrawEllipse($innerRingPen, $innerRect)
-
-  $highlightPen = [System.Drawing.Pen]::new((New-Color 180 230 250 255), 5)
-  $Graphics.DrawArc($highlightPen, 378, 250, 268, 268, 208, 86)
-
-  $fontFamily = [System.Drawing.FontFamily]::GenericSansSerif
-  $dollarFont = [System.Drawing.Font]::new($fontFamily, 184, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-  $dollarGlowBrush = [System.Drawing.SolidBrush]::new((New-Color 110 74 205 255))
-  $dollarBrush = [System.Drawing.SolidBrush]::new((New-Color 255 230 248 255))
-  $format = [System.Drawing.StringFormat]::new()
-  $format.Alignment = [System.Drawing.StringAlignment]::Center
-  $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-
-  $Graphics.DrawString("$", $dollarFont, $dollarGlowBrush, [System.Drawing.RectangleF]::new(334, 232, 356, 300), $format)
-  $Graphics.DrawString("$", $dollarFont, $dollarBrush, [System.Drawing.RectangleF]::new(326, 224, 356, 300), $format)
-
-  $ringGlowPen.Dispose()
-  $ringPen.Dispose()
-  $innerRingPen.Dispose()
-  $highlightPen.Dispose()
-  $dollarFont.Dispose()
-  $dollarGlowBrush.Dispose()
-  $dollarBrush.Dispose()
-  $format.Dispose()
-  $outerGlow.Dispose()
-  $coinPath.Dispose()
-}
-
-function New-BackgroundBrush {
-  param(
-    [System.Drawing.RectangleF]$Bounds
+  $Graphics.DrawLine(
+    $detailPen,
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.17 0.64),
+    (New-ScaledPoint $OffsetX $OffsetY $Scale 0.17 0.84)
   )
 
-  $brush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
-    [System.Drawing.PointF]::new($Bounds.Left, $Bounds.Top),
-    [System.Drawing.PointF]::new($Bounds.Right, $Bounds.Bottom),
-    ((New-Color 255 4 12 35)),
-    ((New-Color 255 10 52 112))
-  )
-
-  $blend = [System.Drawing.Drawing2D.ColorBlend]::new()
-  $blend.Colors = @(
-    ((New-Color 255 2 10 30)),
-    ((New-Color 255 5 22 58)),
-    ((New-Color 255 10 52 112))
-  )
-  $blend.Positions = @(0.0, 0.58, 1.0)
-  $brush.InterpolationColors = $blend
-  return $brush
+  $sleevePath.Dispose()
+  $handPath.Dispose()
+  $outlinePen.Dispose()
+  $detailPen.Dispose()
+  $handBrush.Dispose()
+  $sleeveBrush.Dispose()
 }
 
 function Draw-Scene {
@@ -184,58 +370,23 @@ function Draw-Scene {
     [bool]$TransparentBackground = $false
   )
 
-  $Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-  $Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-  $Graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-  $Graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
-
-  if (-not $TransparentBackground) {
-    $backgroundBrush = New-BackgroundBrush ([System.Drawing.RectangleF]::new(0, 0, $Size, $Size))
-    $Graphics.FillRectangle($backgroundBrush, 0, 0, $Size, $Size)
-    $backgroundBrush.Dispose()
-
-    $starBrush = [System.Drawing.SolidBrush]::new((New-Color 55 92 185 255))
-    $random = [System.Random]::new(42)
-    foreach ($i in 0..54) {
-      $x = $random.Next(40, $Size - 40)
-      $y = $random.Next(40, $Size - 40)
-      $w = $random.Next(6, 18)
-      $Graphics.FillRectangle($starBrush, $x, $y, $w, 2)
-    }
-    $starBrush.Dispose()
+  if ($TransparentBackground) {
+    $Graphics.Clear([System.Drawing.Color]::Transparent)
+  } else {
+    Draw-Background $Graphics $Size
   }
 
-  $arrowGlow = New-Color 70 58 194 255
-  $arrowStroke = New-Color 255 134 236 255
-  Draw-Arrow $Graphics $arrowGlow $arrowStroke @(
-    (New-PointF 170 345),
-    (New-PointF 72 418),
-    (New-PointF 170 492)
-  )
-  Draw-Arrow $Graphics $arrowGlow $arrowStroke @(
-    (New-PointF 850 345),
-    (New-PointF 952 418),
-    (New-PointF 850 492)
-  )
+  $sceneScale = [float]($Size * ($(if ($TransparentBackground) { 0.76 } else { 0.90 })))
+  $offsetX = [float](($Size - $sceneScale) / 2)
+  $offsetY = [float](($Size - $sceneScale) / 2)
+  $stroke = [float]($sceneScale * 0.026)
 
-  Draw-Coin $Graphics
-  Draw-Hand $Graphics (New-Color 55 80 195 255) (New-Color 255 154 234 255)
-
-  $sparkBrush = [System.Drawing.SolidBrush]::new((New-Color 160 191 241 255))
-  foreach ($point in @(
-      (New-PointF 500 150),
-      (New-PointF 300 312),
-      (New-PointF 728 314),
-      (New-PointF 548 625),
-      (New-PointF 252 712),
-      (New-PointF 794 676)
-    )) {
-    $Graphics.FillEllipse($sparkBrush, $point.X, $point.Y, 10, 10)
-  }
-  $sparkBrush.Dispose()
+  Draw-Buildings -Graphics $Graphics -OffsetX $offsetX -OffsetY $offsetY -Scale $sceneScale -Stroke $stroke
+  Draw-MoneyBag -Graphics $Graphics -OffsetX $offsetX -OffsetY $offsetY -Scale $sceneScale -Stroke $stroke
+  Draw-Hand -Graphics $Graphics -OffsetX $offsetX -OffsetY $offsetY -Scale $sceneScale -Stroke $stroke
 }
 
-function Save-Png {
+function Save-Icon {
   param(
     [string]$Path,
     [int]$Size,
@@ -244,73 +395,16 @@ function Save-Png {
 
   $bitmap = [System.Drawing.Bitmap]::new($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-
-  if ($TransparentBackground) {
-    $graphics.Clear([System.Drawing.Color]::Transparent)
-  }
-
-  Draw-Scene $graphics $Size $TransparentBackground
+  Set-HighQualityDrawing $graphics
+  Draw-Scene -Graphics $graphics -Size $Size -TransparentBackground $TransparentBackground
   $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
 
   $graphics.Dispose()
-  $bitmap.Dispose()
-}
-
-function Save-Favicon {
-  param(
-    [string]$Path
-  )
-
-  $size = 256
-  $bitmap = [System.Drawing.Bitmap]::new($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-
-  $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-  $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-  $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-
-  $backgroundBrush = New-BackgroundBrush ([System.Drawing.RectangleF]::new(0, 0, $size, $size))
-  $graphics.FillRectangle($backgroundBrush, 0, 0, $size, $size)
-  $backgroundBrush.Dispose()
-
-  Draw-Arrow $graphics (New-Color 50 58 194 255) (New-Color 255 134 236 255) @(
-    (New-PointF 62 86),
-    (New-PointF 24 128),
-    (New-PointF 62 170)
-  )
-  Draw-Arrow $graphics (New-Color 50 58 194 255) (New-Color 255 134 236 255) @(
-    (New-PointF 194 86),
-    (New-PointF 232 128),
-    (New-PointF 194 170)
-  )
-
-  $glowPen = [System.Drawing.Pen]::new((New-Color 110 62 198 255), 8)
-  $ringPen = [System.Drawing.Pen]::new((New-Color 255 156 234 255), 4)
-  $innerRingPen = [System.Drawing.Pen]::new((New-Color 255 113 201 255), 2)
-  $graphics.DrawEllipse($glowPen, 64, 50, 128, 128)
-  $graphics.DrawEllipse($ringPen, 64, 50, 128, 128)
-  $graphics.DrawEllipse($innerRingPen, 80, 66, 96, 96)
-
-  $font = [System.Drawing.Font]::new([System.Drawing.FontFamily]::GenericSansSerif, 72, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-  $format = [System.Drawing.StringFormat]::new()
-  $format.Alignment = [System.Drawing.StringAlignment]::Center
-  $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-  $brush = [System.Drawing.SolidBrush]::new((New-Color 255 230 248 255))
-  $graphics.DrawString("$", $font, $brush, [System.Drawing.RectangleF]::new(76, 68, 104, 92), $format)
-
-  $glowPen.Dispose()
-  $ringPen.Dispose()
-  $innerRingPen.Dispose()
-  $font.Dispose()
-  $format.Dispose()
-  $brush.Dispose()
-  $graphics.Dispose()
-  $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
   $bitmap.Dispose()
 }
 
 $assetsPath = Join-Path $PSScriptRoot "..\assets"
 
-Save-Png -Path (Join-Path $assetsPath "icon.png") -Size 1024
-Save-Favicon -Path (Join-Path $assetsPath "favicon.png")
-Save-Png -Path (Join-Path $assetsPath "adaptive-icon.png") -Size 1024 -TransparentBackground $true
+Save-Icon -Path (Join-Path $assetsPath "icon.png") -Size 1024
+Save-Icon -Path (Join-Path $assetsPath "adaptive-icon.png") -Size 1024 -TransparentBackground $true
+Save-Icon -Path (Join-Path $assetsPath "favicon.png") -Size 256

@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { ScreenShell } from "@/components/ScreenShell";
 import { useAppTheme } from "@/context/ThemeContext";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { authService, mapAuthError } from "@/services/authService";
+import { biometricAuthService } from "@/services/biometricAuthService";
 import { radii, spacing } from "@/theme/tokens";
 
 type Props = {
@@ -15,43 +17,87 @@ type Props = {
 
 export function LoginScreen({ navigation }: Props) {
   const { theme } = useAppTheme();
+  const { isCompact, isNarrow } = useResponsiveLayout();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState("biometria");
   const errorBackground = theme.dark ? "rgba(245, 158, 11, 0.12)" : "#FFF7ED";
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadBiometricStatus() {
+      const status = await biometricAuthService.getStatus();
+
+      if (!isMounted) {
+        return;
+      }
+
+      setBiometricEnabled(status.isEnabled);
+      setBiometricLabel(status.label);
+    }
+
+    void loadBiometricStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleLogin() {
     try {
       setError("");
       await authService.login(email, password);
+      await biometricAuthService.rememberCredentials(email, password).catch(() => false);
     } catch (currentError) {
       setError(typeof mapAuthError === "function" ? mapAuthError(currentError) : "Email ou senha inválidos.");
+    }
+  }
+
+  async function handleBiometricLogin() {
+    try {
+      setError("");
+      await biometricAuthService.loginWithBiometrics();
+    } catch (currentError) {
+      setError(typeof mapAuthError === "function" ? mapAuthError(currentError) : "Não foi possível validar sua biometria.");
+      const status = await biometricAuthService.getStatus();
+      setBiometricEnabled(status.isEnabled);
+      setBiometricLabel(status.label);
     }
   }
 
   return (
     <ScreenShell style={styles.screen}>
       <View style={styles.layout}>
-        <LinearGradient colors={[theme.colors.heroStart, theme.colors.heroEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+        <LinearGradient colors={[theme.colors.heroStart, theme.colors.heroEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, isCompact && styles.heroCompact]}>
+          <View style={styles.heroBrandRow}>
+            <Image
+              source={require("../../assets/icon.png")}
+              accessibilityLabel="Green Finance icon"
+              style={[styles.heroIcon, isCompact && styles.heroIconCompact]}
+            />
+          </View>
           <View style={styles.heroBadge}>
             <View style={styles.heroBadgeDot} />
             <Text style={styles.heroBadgeLabel}>Green Finance</Text>
           </View>
-          <Text style={styles.heroTitle}>Seu dinheiro em ordem, com uma entrada mais elegante.</Text>
+          <Text style={[styles.heroTitle, isCompact && styles.heroTitleCompact]}>Seu dinheiro em ordem, com uma entrada mais elegante.</Text>
           <Text style={styles.heroSubtitle}>Acompanhe saldo, despesas, recorrências e metas em uma experiência mais clara desde o primeiro acesso.</Text>
           <View style={styles.heroMetrics}>
-            <View style={styles.metricCard}>
+            <View style={[styles.metricCard, isNarrow && styles.metricCardFull]}>
               <Text style={styles.metricLabel}>Visão mensal</Text>
               <Text style={styles.metricValue}>Saldo e categorias</Text>
             </View>
-            <View style={styles.metricCard}>
+            <View style={[styles.metricCard, isNarrow && styles.metricCardFull]}>
               <Text style={styles.metricLabel}>Rotina</Text>
               <Text style={styles.metricValue}>Recorrências sob controle</Text>
             </View>
           </View>
         </LinearGradient>
 
-        <View style={[styles.formCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft, shadowColor: theme.colors.primary }]}>
+        <View style={[styles.formCard, isCompact && styles.formCardCompact, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft, shadowColor: theme.colors.primary }]}>
           <Text style={[styles.formEyebrow, { color: theme.colors.primary }]}>Acesso seguro</Text>
           <Text style={[styles.formTitle, { color: theme.colors.text }]}>Acesse sua conta</Text>
           <Text style={[styles.formSubtitle, { color: theme.colors.textMuted }]}>Faça login para liberar o painel financeiro.</Text>
@@ -92,6 +138,12 @@ export function LoginScreen({ navigation }: Props) {
             <Text style={styles.primaryLabel}>Entrar</Text>
           </Pressable>
 
+          {biometricEnabled ? (
+            <Pressable onPress={handleBiometricLogin} style={[styles.secondaryButton, { borderColor: theme.colors.primary, backgroundColor: theme.colors.cardAlt }]}>
+              <Text style={[styles.secondaryLabel, { color: theme.colors.primary }]}>Entrar com {biometricLabel}</Text>
+            </Pressable>
+          ) : null}
+
           <Pressable onPress={() => navigation.navigate("ForgotPassword")} style={styles.inlineAction}>
             <Text style={[styles.inlineActionLabel, { color: theme.colors.textMuted }]}>Esqueci minha senha</Text>
           </Pressable>
@@ -126,6 +178,21 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     padding: spacing.xxl
   },
+  heroCompact: {
+    padding: spacing.xl
+  },
+  heroBrandRow: {
+    marginBottom: spacing.xs
+  },
+  heroIcon: {
+    borderRadius: radii.md,
+    height: 72,
+    width: 72
+  },
+  heroIconCompact: {
+    height: 60,
+    width: 60
+  },
   heroBadge: {
     alignItems: "center",
     alignSelf: "flex-start",
@@ -156,6 +223,10 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     maxWidth: 320
   },
+  heroTitleCompact: {
+    fontSize: 26,
+    lineHeight: 31
+  },
   heroSubtitle: {
     color: "#DBEAFE",
     fontSize: 14,
@@ -177,6 +248,9 @@ const styles = StyleSheet.create({
     gap: 4,
     minWidth: 160,
     padding: spacing.sm
+  },
+  metricCardFull: {
+    minWidth: "100%"
   },
   metricLabel: {
     color: "#BFDBFE",
@@ -201,6 +275,9 @@ const styles = StyleSheet.create({
       width: 0,
       height: 10
     }
+  },
+  formCardCompact: {
+    padding: spacing.lg
   },
   formEyebrow: {
     fontSize: 12,
@@ -245,6 +322,16 @@ const styles = StyleSheet.create({
   primaryLabel: {
     color: "#FFFFFF",
     fontSize: 16,
+    fontWeight: "700"
+  },
+  secondaryButton: {
+    alignItems: "center",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    paddingVertical: spacing.md
+  },
+  secondaryLabel: {
+    fontSize: 15,
     fontWeight: "700"
   },
   inlineAction: {
