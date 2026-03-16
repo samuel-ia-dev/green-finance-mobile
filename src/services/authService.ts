@@ -14,8 +14,6 @@ const LOCAL_ACCOUNTS_KEY = "green-finance.local-accounts";
 
 const localSubscribers = new Set<(user: AuthUser | null) => void>();
 let localCurrentUser: AuthUser | null = null;
-let remoteSessionBootstrapped = false;
-let remoteSessionBootstrapPromise: Promise<void> | null = null;
 
 type LocalAccount = {
   uid: string;
@@ -83,32 +81,6 @@ function emitLocalUser(user: AuthUser | null) {
   localSubscribers.forEach((callback) => callback(user));
 }
 
-async function ensureRemoteSessionBootstrap() {
-  if (remoteSessionBootstrapped) {
-    return;
-  }
-
-  if (remoteSessionBootstrapPromise) {
-    return remoteSessionBootstrapPromise;
-  }
-
-  remoteSessionBootstrapPromise = remoteBackendService
-    .restoreSession()
-    .then((user) => {
-      emitLocalUser(user);
-    })
-    .catch(async () => {
-      await remoteBackendService.logout().catch(() => undefined);
-      emitLocalUser(null);
-    })
-    .finally(() => {
-      remoteSessionBootstrapped = true;
-      remoteSessionBootstrapPromise = null;
-    });
-
-  return remoteSessionBootstrapPromise;
-}
-
 function createAuthError(code: string) {
   return new Error(`auth/${code}`);
 }
@@ -158,7 +130,6 @@ export const authService = {
 
     if (!auth && isRemoteBackendConfigured()) {
       const user = await remoteBackendService.login(normalizedEmail, normalizedPassword);
-      remoteSessionBootstrapped = true;
       emitLocalUser(user);
       return user;
     }
@@ -189,7 +160,6 @@ export const authService = {
 
     if (!auth && isRemoteBackendConfigured()) {
       const user = await remoteBackendService.register(normalizedEmail, normalizedPassword);
-      remoteSessionBootstrapped = true;
       emitLocalUser(user);
       return user;
     }
@@ -236,7 +206,6 @@ export const authService = {
   async logout() {
     if (!auth && isRemoteBackendConfigured()) {
       await remoteBackendService.logout();
-      remoteSessionBootstrapped = true;
       emitLocalUser(null);
       return;
     }
@@ -252,16 +221,7 @@ export const authService = {
   subscribe(callback: (user: AuthUser | null) => void) {
     if (!auth) {
       localSubscribers.add(callback);
-
-      if (isRemoteBackendConfigured()) {
-        if (remoteSessionBootstrapped) {
-          callback(localCurrentUser);
-        } else {
-          void ensureRemoteSessionBootstrap();
-        }
-      } else {
-        callback(localCurrentUser);
-      }
+      callback(localCurrentUser);
 
       return () => {
         localSubscribers.delete(callback);

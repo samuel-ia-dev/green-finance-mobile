@@ -1,11 +1,152 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Green Finance Backend</title>
-  </head>
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Green Finance</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  <link rel="shortcut icon" href="/favicon.ico" />
+    <meta name="theme-color" content="#0B1020" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Green Finance" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/assets/assets/icon.16476fefb54a7ae7b2e5a4883bf28393.png" />
+    <style id="green-finance-install">
+      #gf-install {
+        position: fixed;
+        inset: auto 0 0 0;
+        z-index: 9999;
+        padding: 16px;
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      #gf-install[hidden] {
+        display: none;
+      }
+
+      #gf-install-card {
+        width: min(100%, 420px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 24px;
+        background: rgba(7, 12, 24, 0.96);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+        color: #f8fafc;
+        padding: 18px;
+        pointer-events: auto;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #gf-install-head {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+      }
+
+      #gf-install-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: 18px;
+        background: #ffffff;
+        object-fit: cover;
+        flex: 0 0 auto;
+      }
+
+      #gf-install-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      #gf-install-text {
+        margin: 6px 0 0;
+        color: #cbd5e1;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      #gf-install-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      #gf-install-primary,
+      #gf-install-secondary {
+        border: 0;
+        border-radius: 14px;
+        padding: 12px 14px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      #gf-install-primary {
+        flex: 1;
+        background: #f59e0b;
+        color: #111827;
+      }
+
+      #gf-install-secondary {
+        background: rgba(255, 255, 255, 0.08);
+        color: #f8fafc;
+      }
+
+      #gf-install-hint {
+        margin-top: 12px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #94a3b8;
+      }
+    </style>
+</head>
+
   <body>
-    <p>Green Finance backend is online.</p>
-  </body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  <script src="/_expo/static/js/web/AppEntry-fc7c99539359abbe1d815004f3e16baf.js" defer></script>
+
+    <div id="gf-install" hidden>
+      <div id="gf-install-card">
+        <div id="gf-install-head">
+          <img id="gf-install-icon" src="/assets/assets/icon.16476fefb54a7ae7b2e5a4883bf28393.png" alt="Green Finance" />
+          <div>
+            <h2 id="gf-install-title">Instale o Green Finance</h2>
+            <p id="gf-install-text">No celular, o app fica melhor instalado: abre em tela cheia, fica mais estavel e funciona como aplicativo.</p>
+          </div>
+        </div>
+        <div id="gf-install-actions">
+          <button id="gf-install-primary" type="button">Instalar app</button>
+          <button id="gf-install-secondary" type="button">Continuar no navegador</button>
+        </div>
+        <div id="gf-install-hint">Se o navegador nao mostrar o popup, use o menu e toque em "Adicionar a tela inicial" ou "Instalar app".</div>
+      </div>
+    </div>
+    <script src="/install.js" defer></script>
+</body>
 </html>

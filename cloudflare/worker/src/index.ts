@@ -23,8 +23,13 @@ type R2Bucket = {
   get: (key: string) => Promise<R2ObjectLike | null>;
 };
 
+type AssetsBinding = {
+  fetch: (request: Request) => Promise<Response>;
+};
+
 type Env = {
   APK_BUCKET?: R2Bucket;
+  ASSETS?: AssetsBinding;
   DB: D1Database;
 };
 
@@ -396,7 +401,15 @@ export default {
         return emptyResponse(204);
       }
 
-      if (url.pathname === "/" || url.pathname === "/app-release.apk") {
+      if (!url.pathname.startsWith("/api") && url.pathname !== "/app-release.apk") {
+        if (env.ASSETS) {
+          return env.ASSETS.fetch(request);
+        }
+
+        return buildAuthError(404, "not-found");
+      }
+
+      if (url.pathname === "/app-release.apk") {
         if (!["GET", "HEAD"].includes(request.method)) {
           return buildAuthError(405, "method-not-allowed");
         }

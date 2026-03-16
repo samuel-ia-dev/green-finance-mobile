@@ -11,6 +11,7 @@
     "cf:whoami": "wrangler whoami",
     "cf:d1:migrate": "wrangler d1 migrations apply green-finance-backend-db --remote",
     "cf:deploy": "wrangler deploy",
+    "cf:pages:build": "node scripts/build-pages-pwa.cjs",
     "eas:build:android": "eas build --platform android --profile preview",
     "eas:build:production": "eas build --platform all --profile production",
     "eas:update:preview": "eas update --channel preview",

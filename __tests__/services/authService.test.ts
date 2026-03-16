@@ -108,18 +108,9 @@ describe("authService", () => {
     });
   });
 
-  it("restores the remote session on subscribe after a fresh boot", async () => {
+  it("starts logged out on subscribe even when a remote session was saved before", async () => {
     (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
       "https://backend.example.com/api";
-
-    (global.fetch as jest.Mock).mockImplementationOnce(() =>
-      mockJsonResponse(200, {
-        user: {
-          uid: "remote-user-2",
-          email: "remote@example.com"
-        }
-      })
-    );
 
     jest.resetModules();
     jest.doMock("@/services/firebase", () => ({
@@ -151,13 +142,9 @@ describe("authService", () => {
     const callback = jest.fn();
     const unsubscribe = isolated!.authService.subscribe(callback);
     await Promise.resolve();
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(callback).toHaveBeenLastCalledWith({
-      uid: "remote-user-2",
-      email: "remote@example.com"
-    });
+    expect(callback).toHaveBeenCalledWith(null);
+    expect(global.fetch).not.toHaveBeenCalled();
     unsubscribe();
   });
 
