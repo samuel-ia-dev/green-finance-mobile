@@ -21,6 +21,7 @@ upload-url*.txt
 tmpfiles-upload.json
 bashupload.txt
 x0-upload.txt
+remote-backend-data.json
 scripts/build-release-apk.cmd
 scripts/serve-apk.cjs
 scripts/start-apk-server.cmd

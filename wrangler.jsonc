@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "green-finance-backend",
+  "main": "cloudflare/worker/src/index.ts",
+  "compatibility_date": "2026-03-16",
+  "account_id": "d014c5d587a9ab803e5214260e0aedd5",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "green-finance-backend-db",
+      "database_id": "f8fdae70-4cf6-41d5-88f6-57d31111dc8f",
+      "migrations_dir": "cloudflare/worker/migrations"
+    }
+  ]
+}

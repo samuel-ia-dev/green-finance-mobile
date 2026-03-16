@@ -13,9 +13,9 @@ type TransactionRowProps = {
   onTogglePaid?: () => void;
 };
 
-function PaymentFlagIcon({ isPaid }: { isPaid: boolean }) {
+function PaymentFlagIcon({ isDark, isPaid }: { isDark: boolean; isPaid: boolean }) {
   const backgroundColor = isPaid ? palette.success : "rgba(34, 197, 94, 0.12)";
-  const textColor = isPaid ? palette.ink : palette.success;
+  const textColor = isPaid ? palette.white : isDark ? "#86EFAC" : palette.success;
 
   return (
     <View style={[styles.paymentFlag, { backgroundColor, borderColor: palette.success }]}>
@@ -60,7 +60,7 @@ export function TransactionRow({ transaction, onEdit, onDelete, onTogglePaid }: 
                   }
                 ]}
               >
-                <PaymentFlagIcon isPaid={isPaid} />
+                <PaymentFlagIcon isDark={isDark} isPaid={isPaid} />
               </Pressable>
             ) : null}
             <Text numberOfLines={1} style={[styles.amount, { color: amountColor }]}>

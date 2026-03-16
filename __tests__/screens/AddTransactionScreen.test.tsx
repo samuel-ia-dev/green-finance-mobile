@@ -86,7 +86,7 @@ describe("AddTransactionScreen", () => {
     });
   });
 
-  it("defaults a recurring expense to the end of december when no end date is filled", async () => {
+  it("keeps a recurring expense without a fixed end date when the field is empty", async () => {
     const screen = render(<AddTransactionScreen />);
 
     fireEvent.changeText(screen.getByPlaceholderText("Valor"), "120");
@@ -99,12 +99,12 @@ describe("AddTransactionScreen", () => {
         expect.objectContaining({
           isRecurring: true,
           recurringStartDate: "2026-03-10",
-          recurringEndDate: "2026-12-31"
+          recurringEndDate: undefined
         })
       );
       expect(mockAddTransaction).toHaveBeenCalledWith(
         expect.objectContaining({
-          recurringEndDate: "2026-12-31"
+          recurringEndDate: undefined
         })
       );
     });

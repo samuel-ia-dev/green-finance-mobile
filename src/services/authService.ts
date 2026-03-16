@@ -7,12 +7,15 @@ import {
 } from "firebase/auth";
 import { cacheService } from "@/services/cacheService";
 import { auth } from "@/services/firebase";
+import { isRemoteBackendConfigured, remoteBackendService } from "@/services/remoteBackendService";
 import { AuthUser } from "@/types/finance";
 
 const LOCAL_ACCOUNTS_KEY = "green-finance.local-accounts";
 
 const localSubscribers = new Set<(user: AuthUser | null) => void>();
 let localCurrentUser: AuthUser | null = null;
+let remoteSessionBootstrapped = false;
+let remoteSessionBootstrapPromise: Promise<void> | null = null;
 
 type LocalAccount = {
   uid: string;
@@ -56,6 +59,15 @@ export function mapAuthError(error: unknown) {
   if (message.includes("weak-password")) {
     return "Use uma senha mais forte.";
   }
+  if (message.includes("session-expired")) {
+    return "Sua sessão expirou. Entre novamente.";
+  }
+  if (message.includes("remote-backend-not-configured")) {
+    return "A sincronização remota ainda não está configurada neste app.";
+  }
+  if (message.includes("remote-password-reset-not-supported")) {
+    return "Recuperação de senha não está disponível nesta versão do app.";
+  }
   return "Não foi possível concluir a autenticação.";
 }
 
@@ -69,6 +81,32 @@ function buildLocalUser(uid: string, email: string): AuthUser {
 function emitLocalUser(user: AuthUser | null) {
   localCurrentUser = user;
   localSubscribers.forEach((callback) => callback(user));
+}
+
+async function ensureRemoteSessionBootstrap() {
+  if (remoteSessionBootstrapped) {
+    return;
+  }
+
+  if (remoteSessionBootstrapPromise) {
+    return remoteSessionBootstrapPromise;
+  }
+
+  remoteSessionBootstrapPromise = remoteBackendService
+    .restoreSession()
+    .then((user) => {
+      emitLocalUser(user);
+    })
+    .catch(async () => {
+      await remoteBackendService.logout().catch(() => undefined);
+      emitLocalUser(null);
+    })
+    .finally(() => {
+      remoteSessionBootstrapped = true;
+      remoteSessionBootstrapPromise = null;
+    });
+
+  return remoteSessionBootstrapPromise;
 }
 
 function createAuthError(code: string) {
@@ -118,6 +156,13 @@ export const authService = {
   async login(email: string, password: string) {
     const { normalizedEmail, normalizedPassword } = validateCredentials(email, password, "login");
 
+    if (!auth && isRemoteBackendConfigured()) {
+      const user = await remoteBackendService.login(normalizedEmail, normalizedPassword);
+      remoteSessionBootstrapped = true;
+      emitLocalUser(user);
+      return user;
+    }
+
     if (!auth) {
       const localAccounts = await getLocalAccounts();
       const account = localAccounts[normalizedEmail];
@@ -141,6 +186,13 @@ export const authService = {
 
   async register(email: string, password: string) {
     const { normalizedEmail, normalizedPassword } = validateCredentials(email, password, "register");
+
+    if (!auth && isRemoteBackendConfigured()) {
+      const user = await remoteBackendService.register(normalizedEmail, normalizedPassword);
+      remoteSessionBootstrapped = true;
+      emitLocalUser(user);
+      return user;
+    }
 
     if (!auth) {
       const localAccounts = await getLocalAccounts();
@@ -170,6 +222,10 @@ export const authService = {
   },
 
   async resetPassword(email: string) {
+    if (!auth && isRemoteBackendConfigured()) {
+      throw createAuthError("remote-password-reset-not-supported");
+    }
+
     if (!auth) {
       return undefined;
     }
@@ -178,6 +234,13 @@ export const authService = {
   },
 
   async logout() {
+    if (!auth && isRemoteBackendConfigured()) {
+      await remoteBackendService.logout();
+      remoteSessionBootstrapped = true;
+      emitLocalUser(null);
+      return;
+    }
+
     if (!auth) {
       emitLocalUser(null);
       return;
@@ -189,7 +252,16 @@ export const authService = {
   subscribe(callback: (user: AuthUser | null) => void) {
     if (!auth) {
       localSubscribers.add(callback);
-      callback(localCurrentUser);
+
+      if (isRemoteBackendConfigured()) {
+        if (remoteSessionBootstrapped) {
+          callback(localCurrentUser);
+        } else {
+          void ensureRemoteSessionBootstrap();
+        }
+      } else {
+        callback(localCurrentUser);
+      }
 
       return () => {
         localSubscribers.delete(callback);

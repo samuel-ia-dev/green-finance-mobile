@@ -1,4 +1,4 @@
-import { buildRecurringInstallments, isSameRecurringSeries, resolveRecurringEndDate, shouldGenerateRecurringInstance } from "@/utils/recurring";
+import { buildRecurringInstallments, isSameRecurringSeries, resolveRecurringEndDate, resolveRecurringGenerationHorizon, shouldGenerateRecurringInstance } from "@/utils/recurring";
 import { RecurringConfig } from "@/types/finance";
 
 const monthlyConfig: RecurringConfig = {
@@ -83,7 +83,7 @@ describe("recurring utils", () => {
     ).toEqual(["2026-01-01", "2027-01-01"]);
   });
 
-  it("defaults recurring installments to december when no end date is provided", () => {
+  it("extends open-ended recurring installments into the next year automatically", () => {
     const installments = buildRecurringInstallments({
       amount: 120,
       categoryId: "housing",
@@ -95,22 +95,15 @@ describe("recurring utils", () => {
       },
       existingDates: ["2026-03-10"],
       parentRecurringId: "root-1",
+      referenceDate: new Date("2026-03-15T00:00:00.000Z"),
       userId: "user-1"
     });
 
-    expect(resolveRecurringEndDate("2026-03-10")).toBe("2026-12-31");
-    expect(installments.map((transaction) => transaction.date)).toEqual([
-      "2026-04-10",
-      "2026-05-10",
-      "2026-06-10",
-      "2026-07-10",
-      "2026-08-10",
-      "2026-09-10",
-      "2026-10-10",
-      "2026-11-10",
-      "2026-12-10"
-    ]);
-    expect(installments.every((transaction) => transaction.recurringEndDate === "2026-12-31")).toBe(true);
+    expect(resolveRecurringEndDate("2026-03-10")).toBeUndefined();
+    expect(resolveRecurringGenerationHorizon("2026-03-10", undefined, new Date("2026-03-15T00:00:00.000Z"))).toBe("2027-12-31");
+    expect(installments[0].date).toBe("2026-04-10");
+    expect(installments.at(-1)?.date).toBe("2027-12-10");
+    expect(installments.every((transaction) => transaction.recurringEndDate === undefined)).toBe(true);
   });
 
   it("matches recurring entries from the same future month even without the parent id", () => {

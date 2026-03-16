@@ -1,6 +1,15 @@
-import { addDoc, updateDoc, deleteDoc, onSnapshot, setDoc } from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { addDoc, updateDoc, deleteDoc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
 import { firestoreService } from "@/services/firestoreService";
 import { FinanceHydrationPayload, Goal, TransactionInput } from "@/types/finance";
+
+function mockJsonResponse(status: number, payload: unknown) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    text: jest.fn().mockResolvedValue(payload ? JSON.stringify(payload) : "")
+  });
+}
 
 function loadLocalFirestoreService(initialState?: FinanceHydrationPayload) {
   jest.resetModules();
@@ -37,13 +46,21 @@ function loadLocalFirestoreService(initialState?: FinanceHydrationPayload) {
 }
 
 describe("firestoreService", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
+    await AsyncStorage.clear();
+    delete process.env.EXPO_PUBLIC_REMOTE_API_BASE_URL;
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ = "";
+    global.fetch = jest.fn();
   });
 
-  it("creates a transaction with timestamps and recurring payload", async () => {
+  it("creates a transaction with timestamps and keeps open recurring series without a fixed end", async () => {
     (addDoc as jest.Mock).mockResolvedValueOnce({ id: "tx-1" });
-    (setDoc as jest.Mock).mockResolvedValue(undefined);
+    const batch = {
+      set: jest.fn(),
+      commit: jest.fn().mockResolvedValue(undefined)
+    };
+    (writeBatch as jest.Mock).mockReturnValueOnce(batch);
     const input: TransactionInput = {
       userId: "user-1",
       type: "expense",
@@ -58,26 +75,27 @@ describe("firestoreService", () => {
     };
 
     const id = await firestoreService.createTransaction(input);
+    const createdPayload = (addDoc as jest.Mock).mock.calls[0][1];
 
-    expect(addDoc).toHaveBeenCalledWith(
+    expect(createdPayload.recurringEndDate).toBeUndefined();
+    expect(batch.set).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        recurringEndDate: "2026-12-31"
+        date: "2027-12-10",
+        recurringEndDate: undefined
       })
     );
-    expect(setDoc).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        date: "2026-12-10",
-        recurringEndDate: "2026-12-31"
-      })
-    );
+    expect(batch.commit).toHaveBeenCalledTimes(1);
     expect(id).toBe("tx-1");
   });
 
   it("creates future recurring entries when an end date exists", async () => {
     (addDoc as jest.Mock).mockResolvedValue({ id: "tx-root" });
-    (setDoc as jest.Mock).mockResolvedValue(undefined);
+    const batch = {
+      set: jest.fn(),
+      commit: jest.fn().mockResolvedValue(undefined)
+    };
+    (writeBatch as jest.Mock).mockReturnValueOnce(batch);
 
     await firestoreService.createTransaction({
       userId: "user-1",
@@ -94,7 +112,7 @@ describe("firestoreService", () => {
     });
 
     expect(addDoc).toHaveBeenCalledTimes(1);
-    expect(setDoc).toHaveBeenCalledWith(
+    expect(batch.set).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         id: "tx-root-2026-04-10",
@@ -102,6 +120,7 @@ describe("firestoreService", () => {
         date: "2026-04-10"
       })
     );
+    expect(batch.commit).toHaveBeenCalledTimes(1);
   });
 
   it("creates a non recurring transaction without expanding the series", async () => {
@@ -235,6 +254,11 @@ describe("firestoreService", () => {
 
   it("creates generated recurring transactions and seeds default categories", async () => {
     (setDoc as jest.Mock).mockResolvedValue(undefined);
+    const batch = {
+      set: jest.fn(),
+      commit: jest.fn().mockResolvedValue(undefined)
+    };
+    (writeBatch as jest.Mock).mockReturnValueOnce(batch);
 
     const id = await firestoreService.createGeneratedRecurringTransaction({
       userId: "user-1",
@@ -253,7 +277,101 @@ describe("firestoreService", () => {
     await firestoreService.ensureDefaultCategories("user-1");
 
     expect(id).toBe("root-1-2026-03-10");
+    expect(batch.set).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: "root-1-2026-03-10"
+      })
+    );
+    expect(batch.commit).toHaveBeenCalledTimes(1);
     expect(setDoc).toHaveBeenCalled();
+  });
+
+  it("syncs transactions through the remote backend when firebase is not configured", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+    const remoteState: FinanceHydrationPayload = {
+      transactions: [],
+      categories: [],
+      goals: [],
+      settings: {
+        theme: "light",
+        currency: "BRL",
+        email: "remote@example.com"
+      }
+    };
+
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/bootstrap")) {
+        return mockJsonResponse(200, remoteState);
+      }
+
+      if (url.endsWith("/transactions/bulk-upsert")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        remoteState.transactions = body.items;
+        return mockJsonResponse(204, null);
+      }
+
+      return mockJsonResponse(404, { error: "not-found" });
+    });
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      db: null
+    }));
+    jest.doMock("@/services/cacheService", () => ({
+      cacheService: {
+        getItem: jest.fn(async (key: string, fallback: unknown) =>
+          key === "green-finance.remote-session"
+            ? {
+                token: "session-remote",
+                user: {
+                  uid: "remote-user",
+                  email: "remote@example.com"
+                }
+              }
+            : fallback
+        ),
+        setItem: jest.fn(),
+        removeItem: jest.fn()
+      }
+    }));
+
+    let isolated: typeof import("@/services/firestoreService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/firestoreService");
+    });
+
+    const callback = jest.fn();
+    const unsubscribe = isolated!.firestoreService.subscribeToTransactions("remote-user", callback);
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const id = await isolated!.firestoreService.createTransaction({
+      userId: "remote-user",
+      type: "expense",
+      amount: 77,
+      categoryId: "housing",
+      categoryName: "Moradia",
+      description: "Internet remota",
+      date: "2026-03-10",
+      isRecurring: false
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(id).toMatch(/^tx-/);
+    expect(callback.mock.calls.at(-1)?.[0]).toEqual([
+      expect.objectContaining({
+        id,
+        description: "Internet remota"
+      })
+    ]);
+
+    unsubscribe();
   });
 
   it("falls back to local subscriptions when firestore is not configured", async () => {
@@ -502,6 +620,49 @@ describe("firestoreService", () => {
 
     const latestTransactions = callback.mock.calls.at(-1)?.[0];
     expect(latestTransactions.filter((transaction: { parentRecurringId?: string; date: string }) => transaction.parentRecurringId === "root-dup" && transaction.date === "2026-04-10")).toHaveLength(1);
+  });
+
+  it("creates generated recurring transactions in a single local batch when firestore is not configured", async () => {
+    const callback = jest.fn();
+    const { firestoreService: localFirestoreService } = loadLocalFirestoreService();
+
+    localFirestoreService.subscribeToTransactions("local-demo-user", callback);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const generatedIds = await localFirestoreService.createGeneratedRecurringTransactions([
+      {
+        userId: "local-demo-user",
+        type: "expense",
+        amount: 120,
+        categoryId: "local-demo-user-Moradia",
+        categoryName: "Moradia",
+        description: "Internet local",
+        date: "2026-04-10",
+        isRecurring: true,
+        recurringFrequency: "monthly",
+        recurringStartDate: "2026-03-10",
+        parentRecurringId: "root-batch"
+      },
+      {
+        userId: "local-demo-user",
+        type: "expense",
+        amount: 120,
+        categoryId: "local-demo-user-Moradia",
+        categoryName: "Moradia",
+        description: "Internet local",
+        date: "2026-05-10",
+        isRecurring: true,
+        recurringFrequency: "monthly",
+        recurringStartDate: "2026-03-10",
+        parentRecurringId: "root-batch"
+      }
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const latestTransactions = callback.mock.calls.at(-1)?.[0];
+    expect(generatedIds).toEqual(["root-batch-2026-04-10", "root-batch-2026-05-10"]);
+    expect(latestTransactions.filter((transaction: { parentRecurringId?: string }) => transaction.parentRecurringId === "root-batch")).toHaveLength(2);
   });
 
   it("updates local settings and goals when firestore is not configured", async () => {

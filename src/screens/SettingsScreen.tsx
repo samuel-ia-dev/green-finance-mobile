@@ -14,7 +14,7 @@ import { spacing } from "@/theme/tokens";
 
 export function SettingsScreen() {
   const { user } = useAuthSession();
-  const { isDark, toggleTheme, theme } = useAppTheme();
+  const { isDark, setThemeMode, theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const transactions = useFinanceStore((state) => state.transactions);
   const [biometricStatus, setBiometricStatus] = useState<BiometricStatus>({
@@ -64,6 +64,10 @@ export function SettingsScreen() {
     }));
   }
 
+  async function handleThemeChange(nextValue: boolean) {
+    await setThemeMode(nextValue ? "dark" : "light");
+  }
+
   return (
     <ScreenShell scrollable={false}>
       <View style={styles.screen}>
@@ -75,7 +79,7 @@ export function SettingsScreen() {
           <SectionCard title="Preferências" subtitle="Troque entre tema claro e escuro sem reiniciar o app.">
             <View style={styles.switchRow}>
               <Text style={{ color: theme.colors.text }}>Modo escuro</Text>
-              <Switch value={isDark} onValueChange={toggleTheme} accessibilityRole="switch" />
+              <Switch value={isDark} onValueChange={(nextValue) => void handleThemeChange(nextValue)} accessibilityRole="switch" />
             </View>
           </SectionCard>
           <SectionCard title="Segurança" subtitle="Use biometria para entrar mais rápido neste aparelho.">

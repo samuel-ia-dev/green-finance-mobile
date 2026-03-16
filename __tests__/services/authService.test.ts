@@ -2,10 +2,21 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
 import { authService, mapAuthError, toAuthUser } from "@/services/authService";
 
+function mockJsonResponse(status: number, payload: unknown) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    text: jest.fn().mockResolvedValue(payload ? JSON.stringify(payload) : "")
+  });
+}
+
 describe("authService", () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     await AsyncStorage.clear();
+    delete process.env.EXPO_PUBLIC_REMOTE_API_BASE_URL;
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ = "";
+    global.fetch = jest.fn();
   });
 
   it("logs in using firebase auth", async () => {
@@ -53,8 +64,101 @@ describe("authService", () => {
     expect(mapAuthError(new Error("auth/biometric-failed"))).toBe("Não foi possível validar sua biometria.");
     expect(mapAuthError(new Error("auth/email-already-in-use"))).toBe("Este email já está em uso.");
     expect(mapAuthError(new Error("auth/weak-password"))).toBe("Use uma senha mais forte.");
+    expect(mapAuthError(new Error("auth/session-expired"))).toBe("Sua sessão expirou. Entre novamente.");
+    expect(mapAuthError(new Error("auth/remote-backend-not-configured"))).toBe("A sincronização remota ainda não está configurada neste app.");
+    expect(mapAuthError(new Error("auth/remote-password-reset-not-supported"))).toBe("Recuperação de senha não está disponível nesta versão do app.");
     expect(mapAuthError(new Error("random-error"))).toBe("Não foi possível concluir a autenticação.");
     expect(mapAuthError("plain-text-error")).toBe("Não foi possível concluir a autenticação.");
+  });
+
+  it("logs in with the remote backend when firebase auth is not configured", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+    (global.fetch as jest.Mock).mockImplementationOnce(() =>
+      mockJsonResponse(200, {
+        token: "session-1",
+        user: {
+          uid: "remote-user-1",
+          email: "remote@example.com"
+        }
+      })
+    );
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    const user = await isolated!.authService.login("remote@example.com", "123456");
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://backend.example.com/api/auth/login",
+      expect.objectContaining({
+        method: "POST"
+      })
+    );
+    expect(user).toEqual({
+      uid: "remote-user-1",
+      email: "remote@example.com"
+    });
+  });
+
+  it("restores the remote session on subscribe after a fresh boot", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+
+    (global.fetch as jest.Mock).mockImplementationOnce(() =>
+      mockJsonResponse(200, {
+        user: {
+          uid: "remote-user-2",
+          email: "remote@example.com"
+        }
+      })
+    );
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+    jest.doMock("@/services/cacheService", () => ({
+      cacheService: {
+        getItem: jest.fn(async (key: string, fallback: unknown) =>
+          key === "green-finance.remote-session"
+            ? {
+                token: "session-2",
+                user: {
+                  uid: "remote-user-2",
+                  email: "remote@example.com"
+                }
+              }
+            : fallback
+        ),
+        setItem: jest.fn(),
+        removeItem: jest.fn()
+      }
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    const callback = jest.fn();
+    const unsubscribe = isolated!.authService.subscribe(callback);
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(callback).toHaveBeenLastCalledWith({
+      uid: "remote-user-2",
+      email: "remote@example.com"
+    });
+    unsubscribe();
   });
 
   it("subscribes to auth changes", () => {

@@ -4,8 +4,7 @@ import { useAuthSession } from "@/context/AuthSessionContext";
 import { cacheService } from "@/services/cacheService";
 import { firestoreService } from "@/services/firestoreService";
 import { useFinanceStore } from "@/store/useFinanceStore";
-import { getMonthKey } from "@/utils/format";
-import { buildRecurringInstallments, isSameRecurringSeries, resolveRecurringEndDate } from "@/utils/recurring";
+import { buildRecurringInstallments, isSameRecurringSeries, resolveRecurringEndDate, resolveRecurringGenerationHorizon } from "@/utils/recurring";
 
 const emptyPayload: FinanceHydrationPayload = {
   transactions: [],
@@ -17,8 +16,10 @@ const emptyPayload: FinanceHydrationPayload = {
   }
 };
 
+const recurringCoverageRunningUsers = new Set<string>();
+const pendingRecurringCoverageByUser = new Map<string, Transaction[]>();
+
 async function ensureRecurringCoverage(userId: string, transactions: Transaction[]) {
-  const horizonDate = `${getMonthKey().slice(0, 4)}-12-31`;
   const templates = transactions.filter(
     (transaction) =>
       transaction.isRecurring &&
@@ -30,6 +31,7 @@ async function ensureRecurringCoverage(userId: string, transactions: Transaction
 
   for (const template of templates) {
     const recurringEndDate = resolveRecurringEndDate(template.recurringStartDate!, template.recurringEndDate);
+    const generationHorizon = resolveRecurringGenerationHorizon(template.recurringStartDate!, template.recurringEndDate, new Date());
     const relatedDates = transactions
       .filter((transaction) => isSameRecurringSeries(transaction, template))
       .map((transaction) => transaction.date);
@@ -46,17 +48,49 @@ async function ensureRecurringCoverage(userId: string, transactions: Transaction
       },
       existingDates: relatedDates,
       parentRecurringId: template.id,
+      referenceDate: new Date(),
       userId
-    }).filter((transaction) => transaction.date <= recurringEndDate && transaction.date <= horizonDate);
+    }).filter((transaction) => transaction.date <= generationHorizon);
 
-    await Promise.all(
-      generated.map((transaction) =>
-        firestoreService.createGeneratedRecurringTransaction({
-          ...transaction,
-          userId
-        })
-      )
+    if (!generated.length) {
+      continue;
+    }
+
+    await firestoreService.createGeneratedRecurringTransactions(
+      generated.map((transaction) => ({
+        ...transaction,
+        userId
+      }))
     );
+  }
+}
+
+async function scheduleRecurringCoverage(userId: string, transactions: Transaction[]) {
+  pendingRecurringCoverageByUser.set(userId, transactions);
+
+  if (recurringCoverageRunningUsers.has(userId)) {
+    return;
+  }
+
+  recurringCoverageRunningUsers.add(userId);
+
+  try {
+    while (pendingRecurringCoverageByUser.has(userId)) {
+      const nextTransactions = pendingRecurringCoverageByUser.get(userId);
+      pendingRecurringCoverageByUser.delete(userId);
+
+      if (!nextTransactions) {
+        continue;
+      }
+
+      await ensureRecurringCoverage(userId, nextTransactions);
+    }
+  } finally {
+    recurringCoverageRunningUsers.delete(userId);
+
+    if (pendingRecurringCoverageByUser.has(userId)) {
+      void scheduleRecurringCoverage(userId, pendingRecurringCoverageByUser.get(userId)!);
+    }
   }
 }
 
@@ -102,7 +136,7 @@ export function useFinanceRealtime() {
           goals: snapshot.goals,
           settings: snapshot.settings
         });
-        await ensureRecurringCoverage(user.uid, transactions).catch(() => undefined);
+        void scheduleRecurringCoverage(user.uid, transactions).catch(() => undefined);
         setSyncing(false);
       }),
       firestoreService.subscribeToCategories(user.uid, async (categories) => {

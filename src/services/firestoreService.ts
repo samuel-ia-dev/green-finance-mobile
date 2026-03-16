@@ -9,15 +9,18 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from "firebase/firestore";
 import { cacheService } from "@/services/cacheService";
 import { db } from "@/services/firebase";
+import { isRemoteBackendConfigured, remoteBackendService } from "@/services/remoteBackendService";
 import { Category, FinanceHydrationPayload, Goal, Transaction, TransactionInput, UserSettings } from "@/types/finance";
 import { buildRecurringInstallments, resolveRecurringEndDate } from "@/utils/recurring";
 
 const LOCAL_FINANCE_KEY = "green-finance-local-finance";
 const LOCAL_DEMO_USER_ID = "local-demo-user";
+const REMOTE_POLL_INTERVAL_MS = 2000;
 
 type LocalTransactionsSubscriber = {
   userId: string;
@@ -44,12 +47,21 @@ const localCategoriesSubscribers = new Set<LocalCategoriesSubscriber>();
 const localGoalsSubscribers = new Set<LocalGoalsSubscriber>();
 const localSettingsSubscribers = new Set<LocalSettingsSubscriber>();
 
+const remoteTransactionsSubscribers = new Set<LocalTransactionsSubscriber>();
+const remoteCategoriesSubscribers = new Set<LocalCategoriesSubscriber>();
+const remoteGoalsSubscribers = new Set<LocalGoalsSubscriber>();
+const remoteSettingsSubscribers = new Set<LocalSettingsSubscriber>();
+
 let localStateCache: FinanceHydrationPayload | null = null;
 let localStatePromise: Promise<FinanceHydrationPayload> | null = null;
+const remoteStateCache = new Map<string, FinanceHydrationPayload>();
+const remotePollingHandles = new Map<string, ReturnType<typeof setInterval>>();
+const remoteRefreshPromises = new Map<string, Promise<FinanceHydrationPayload>>();
 
 const transactionsCollection = () => collection(db!, "transactions");
 const categoriesCollection = () => collection(db!, "categories");
 const goalsCollection = () => collection(db!, "goals");
+const FIRESTORE_WRITE_BATCH_LIMIT = 450;
 
 function normalizeSnapshot<T extends Record<string, unknown>>(snapshot: { docs: { id?: string; data?: () => unknown }[] }) {
   return snapshot.docs.map((entry, index) => {
@@ -72,6 +84,16 @@ function buildLocalId(prefix: string) {
 
 function buildGeneratedRecurringId(input: Pick<TransactionInput, "date" | "parentRecurringId"> & { id?: string }) {
   return input.id ?? `${input.parentRecurringId ?? "recurring"}-${input.date}`;
+}
+
+function chunkItems<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
 }
 
 export const defaultCategories = [
@@ -202,6 +224,103 @@ function emitLocalState(state: FinanceHydrationPayload) {
   });
 }
 
+function emitRemoteState(userId: string, state: FinanceHydrationPayload) {
+  remoteStateCache.set(userId, state);
+
+  remoteTransactionsSubscribers.forEach((subscriber) => {
+    if (subscriber.userId === userId) {
+      subscriber.callback(sortTransactions(state.transactions));
+    }
+  });
+
+  remoteCategoriesSubscribers.forEach((subscriber) => {
+    if (subscriber.userId === userId) {
+      subscriber.callback(sortCategories(state.categories));
+    }
+  });
+
+  remoteGoalsSubscribers.forEach((subscriber) => {
+    if (subscriber.userId === userId) {
+      subscriber.callback(sortGoals(state.goals));
+    }
+  });
+
+  remoteSettingsSubscribers.forEach((subscriber) => {
+    if (subscriber.userId === userId) {
+      subscriber.callback(state.settings);
+    }
+  });
+}
+
+function getRemoteSubscriberCount(userId: string) {
+  return (
+    Array.from(remoteTransactionsSubscribers).filter((subscriber) => subscriber.userId === userId).length +
+    Array.from(remoteCategoriesSubscribers).filter((subscriber) => subscriber.userId === userId).length +
+    Array.from(remoteGoalsSubscribers).filter((subscriber) => subscriber.userId === userId).length +
+    Array.from(remoteSettingsSubscribers).filter((subscriber) => subscriber.userId === userId).length
+  );
+}
+
+async function refreshRemoteState(userId: string) {
+  const currentRefresh = remoteRefreshPromises.get(userId);
+
+  if (currentRefresh) {
+    return currentRefresh;
+  }
+
+  const refreshPromise = remoteBackendService.getFinanceBootstrap().then((state) => {
+    emitRemoteState(userId, state);
+    return state;
+  });
+
+  remoteRefreshPromises.set(userId, refreshPromise);
+
+  return refreshPromise.finally(() => {
+    remoteRefreshPromises.delete(userId);
+  });
+}
+
+function ensureRemotePolling(userId: string) {
+  if (remotePollingHandles.has(userId)) {
+    return;
+  }
+
+  void refreshRemoteState(userId).catch(() => undefined);
+  const handle = setInterval(() => {
+    void refreshRemoteState(userId).catch(() => undefined);
+  }, REMOTE_POLL_INTERVAL_MS);
+  remotePollingHandles.set(userId, handle);
+}
+
+function stopRemotePollingIfUnused(userId: string) {
+  if (getRemoteSubscriberCount(userId) > 0) {
+    return;
+  }
+
+  const handle = remotePollingHandles.get(userId);
+
+  if (handle) {
+    clearInterval(handle);
+    remotePollingHandles.delete(userId);
+  }
+}
+
+function emitLatestLocalState() {
+  if (localStateCache) {
+    emitLocalState(localStateCache);
+  }
+}
+
+function findRemoteTransactionUserId(id: string) {
+  for (const [userId, state] of remoteStateCache.entries()) {
+    if (state.transactions.some((transaction) => transaction.id === id)) {
+      return userId;
+    }
+  }
+
+  return null;
+}
+
 async function persistLocalState(state: FinanceHydrationPayload) {
   localStateCache = state;
   await cacheService.setItem(LOCAL_FINANCE_KEY, state);
@@ -213,6 +332,75 @@ async function updateLocalState<T>(updater: (state: FinanceHydrationPayload) => 
   const { state, result } = updater(currentState);
   await persistLocalState(state);
   return result;
+}
+
+async function createGeneratedRecurringTransactions(input: TransactionInput[]) {
+  if (!input.length) {
+    return [];
+  }
+
+  if (!db && isRemoteBackendConfigured()) {
+    const now = buildLocalTimestamp();
+    const transactions = input.map((transactionInput) => ({
+      ...transactionInput,
+      id: buildGeneratedRecurringId(transactionInput),
+      createdAt: now,
+      updatedAt: now
+    }));
+
+    await remoteBackendService.bulkUpsert("transactions", transactions);
+    await refreshRemoteState(input[0].userId).catch(() => undefined);
+    return transactions.map((transaction) => transaction.id);
+  }
+
+  if (!db) {
+    return updateLocalState((state) => {
+      const now = buildLocalTimestamp();
+      const transactionsById = new Map(state.transactions.map((transaction) => [transaction.id, transaction]));
+      const generatedIds = input.map((transactionInput) => {
+        const generatedId = buildGeneratedRecurringId(transactionInput);
+        const existingTransaction = transactionsById.get(generatedId);
+
+        transactionsById.set(generatedId, {
+          ...transactionInput,
+          id: generatedId,
+          createdAt: existingTransaction?.createdAt ?? now,
+          updatedAt: now
+        });
+
+        return generatedId;
+      });
+
+      return {
+        state: {
+          ...state,
+          transactions: Array.from(transactionsById.values())
+        },
+        result: generatedIds
+      };
+    });
+  }
+
+  const generatedIds: string[] = [];
+
+  for (const chunk of chunkItems(input, FIRESTORE_WRITE_BATCH_LIMIT)) {
+    const batch = writeBatch(db!);
+
+    chunk.forEach((transactionInput) => {
+      const generatedId = buildGeneratedRecurringId(transactionInput);
+      generatedIds.push(generatedId);
+      batch.set(doc(db!, "transactions", generatedId), {
+        ...transactionInput,
+        id: generatedId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+  }
+
+  return generatedIds;
 }
 
 function ensureLocalCategoriesForUser(state: FinanceHydrationPayload, userId: string) {
@@ -235,6 +423,47 @@ export const firestoreService = {
             recurringEndDate: resolveRecurringEndDate(input.recurringStartDate, input.recurringEndDate)
           }
         : input;
+
+    if (!db && isRemoteBackendConfigured()) {
+      const now = buildLocalTimestamp();
+      const id = buildLocalId("tx");
+      const transactions: Transaction[] = [
+        {
+          ...normalizedInput,
+          id,
+          createdAt: now,
+          updatedAt: now
+        }
+      ];
+
+      if (normalizedInput.isRecurring && normalizedInput.recurringFrequency && normalizedInput.recurringStartDate) {
+        const generated = buildRecurringInstallments({
+          amount: normalizedInput.amount,
+          categoryId: normalizedInput.categoryId,
+          categoryName: normalizedInput.categoryName,
+          description: normalizedInput.description,
+          config: {
+            frequency: normalizedInput.recurringFrequency,
+            startDate: normalizedInput.recurringStartDate,
+            endDate: normalizedInput.recurringEndDate
+          },
+          existingDates: [normalizedInput.date],
+          parentRecurringId: id,
+          referenceDate: new Date(`${normalizedInput.recurringStartDate}T00:00:00`),
+          userId: normalizedInput.userId
+        }).map((transaction) => ({
+          ...transaction,
+          createdAt: now,
+          updatedAt: now
+        }));
+
+        transactions.push(...generated);
+      }
+
+      await remoteBackendService.bulkUpsert("transactions", transactions);
+      await refreshRemoteState(normalizedInput.userId).catch(() => undefined);
+      return id;
+    }
 
     if (!db) {
       return updateLocalState((state) => {
@@ -263,6 +492,7 @@ export const firestoreService = {
             },
             existingDates: [normalizedInput.date],
             parentRecurringId: id,
+            referenceDate: new Date(`${normalizedInput.recurringStartDate}T00:00:00`),
             userId: normalizedInput.userId
           }).map((transaction) => ({
             ...transaction,
@@ -303,60 +533,40 @@ export const firestoreService = {
         },
         existingDates: [normalizedInput.date],
         parentRecurringId: transactionRef.id,
+        referenceDate: new Date(`${normalizedInput.recurringStartDate}T00:00:00`),
         userId: normalizedInput.userId
       });
 
-      await Promise.all(
-        generated.map((transaction) =>
-          setDoc(doc(db!, "transactions", buildGeneratedRecurringId(transaction)), {
-            ...transaction,
-            id: buildGeneratedRecurringId(transaction),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          })
-        )
-      );
+      await createGeneratedRecurringTransactions(generated);
     }
 
     return transactionRef.id;
   },
 
+  async createGeneratedRecurringTransactions(input: TransactionInput[]) {
+    return createGeneratedRecurringTransactions(input);
+  },
+
   async createGeneratedRecurringTransaction(input: TransactionInput) {
-    const generatedId = buildGeneratedRecurringId(input);
-
-    if (!db) {
-      return updateLocalState((state) => {
-        const now = buildLocalTimestamp();
-        const existingTransaction = state.transactions.find((transaction) => transaction.id === generatedId);
-        const nextTransaction = {
-          ...input,
-          id: generatedId,
-          createdAt: existingTransaction?.createdAt ?? now,
-          updatedAt: now
-        };
-
-        return {
-          state: {
-            ...state,
-            transactions: existingTransaction
-              ? state.transactions.map((transaction) => (transaction.id === generatedId ? nextTransaction : transaction))
-              : [...state.transactions, nextTransaction]
-          },
-          result: generatedId
-        };
-      });
-    }
-
-    await setDoc(doc(db!, "transactions", generatedId), {
-      ...input,
-      id: generatedId,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+    const [generatedId] = await createGeneratedRecurringTransactions([input]);
     return generatedId;
   },
 
   async updateTransaction(id: string, input: Partial<TransactionInput>) {
+    if (!db && isRemoteBackendConfigured()) {
+      const userId = input.userId ?? findRemoteTransactionUserId(id);
+
+      await remoteBackendService.patchTransaction(id, {
+        ...input,
+        updatedAt: buildLocalTimestamp()
+      });
+
+      if (userId) {
+        await refreshRemoteState(userId).catch(() => undefined);
+      }
+      return;
+    }
+
     if (!db) {
       await updateLocalState((state) => ({
         state: {
@@ -384,6 +594,18 @@ export const firestoreService = {
   },
 
   async deleteTransaction(id: string) {
+    if (!db && isRemoteBackendConfigured()) {
+      const userId = findRemoteTransactionUserId(id);
+
+      await remoteBackendService.deleteTransaction(id);
+
+      if (userId) {
+        await refreshRemoteState(userId).catch(() => undefined);
+      }
+
+      return;
+    }
+
     if (!db) {
       await updateLocalState((state) => ({
         state: {
@@ -400,6 +622,23 @@ export const firestoreService = {
   },
 
   subscribeToTransactions(userId: string, callback: (transactions: Transaction[]) => void) {
+    if (!db && isRemoteBackendConfigured()) {
+      const subscriber = { userId, callback };
+      remoteTransactionsSubscribers.add(subscriber);
+      const cachedState = remoteStateCache.get(userId);
+
+      if (cachedState) {
+        callback(sortTransactions(cachedState.transactions));
+      }
+
+      ensureRemotePolling(userId);
+
+      return () => {
+        remoteTransactionsSubscribers.delete(subscriber);
+        stopRemotePollingIfUnused(userId);
+      };
+    }
+
     if (!db) {
       const subscriber = { userId, callback };
       localTransactionsSubscribers.add(subscriber);
@@ -408,7 +647,7 @@ export const firestoreService = {
       } else {
         emitLocalState(localStateCache);
       }
-      void getLocalState().then((state) => emitLocalState(state));
+      void getLocalState().then(() => emitLatestLocalState());
 
       return () => {
         localTransactionsSubscribers.delete(subscriber);
@@ -422,6 +661,23 @@ export const firestoreService = {
   },
 
   subscribeToCategories(userId: string, callback: (categories: Category[]) => void) {
+    if (!db && isRemoteBackendConfigured()) {
+      const subscriber = { userId, callback };
+      remoteCategoriesSubscribers.add(subscriber);
+      const cachedState = remoteStateCache.get(userId);
+
+      if (cachedState) {
+        callback(sortCategories(cachedState.categories));
+      }
+
+      ensureRemotePolling(userId);
+
+      return () => {
+        remoteCategoriesSubscribers.delete(subscriber);
+        stopRemotePollingIfUnused(userId);
+      };
+    }
+
     if (!db) {
       const subscriber = { userId, callback };
       localCategoriesSubscribers.add(subscriber);
@@ -430,7 +686,7 @@ export const firestoreService = {
       } else {
         emitLocalState(localStateCache);
       }
-      void getLocalState().then((state) => emitLocalState(state));
+      void getLocalState().then(() => emitLatestLocalState());
 
       return () => {
         localCategoriesSubscribers.delete(subscriber);
@@ -444,6 +700,23 @@ export const firestoreService = {
   },
 
   subscribeToGoals(userId: string, callback: (goals: Goal[]) => void) {
+    if (!db && isRemoteBackendConfigured()) {
+      const subscriber = { userId, callback };
+      remoteGoalsSubscribers.add(subscriber);
+      const cachedState = remoteStateCache.get(userId);
+
+      if (cachedState) {
+        callback(sortGoals(cachedState.goals));
+      }
+
+      ensureRemotePolling(userId);
+
+      return () => {
+        remoteGoalsSubscribers.delete(subscriber);
+        stopRemotePollingIfUnused(userId);
+      };
+    }
+
     if (!db) {
       const subscriber = { userId, callback };
       localGoalsSubscribers.add(subscriber);
@@ -452,7 +725,7 @@ export const firestoreService = {
       } else {
         emitLocalState(localStateCache);
       }
-      void getLocalState().then((state) => emitLocalState(state));
+      void getLocalState().then(() => emitLatestLocalState());
 
       return () => {
         localGoalsSubscribers.delete(subscriber);
@@ -466,6 +739,23 @@ export const firestoreService = {
   },
 
   subscribeToSettings(userId: string, callback: (settings: UserSettings | null) => void) {
+    if (!db && isRemoteBackendConfigured()) {
+      const subscriber = { userId, callback };
+      remoteSettingsSubscribers.add(subscriber);
+      const cachedState = remoteStateCache.get(userId);
+
+      if (cachedState) {
+        callback(cachedState.settings);
+      }
+
+      ensureRemotePolling(userId);
+
+      return () => {
+        remoteSettingsSubscribers.delete(subscriber);
+        stopRemotePollingIfUnused(userId);
+      };
+    }
+
     if (!db) {
       const subscriber = { userId, callback };
       localSettingsSubscribers.add(subscriber);
@@ -474,7 +764,7 @@ export const firestoreService = {
       } else {
         emitLocalState(localStateCache);
       }
-      void getLocalState().then((state) => emitLocalState(state));
+      void getLocalState().then(() => emitLatestLocalState());
 
       return () => {
         localSettingsSubscribers.delete(subscriber);
@@ -487,6 +777,12 @@ export const firestoreService = {
   },
 
   async saveUserSettings(userId: string, settings: UserSettings) {
+    if (!db && isRemoteBackendConfigured()) {
+      await remoteBackendService.saveSettings(settings);
+      await refreshRemoteState(userId).catch(() => undefined);
+      return;
+    }
+
     if (!db) {
       await updateLocalState((state) => ({
         state: {
@@ -514,6 +810,20 @@ export const firestoreService = {
   },
 
   async ensureDefaultCategories(userId: string) {
+    if (!db && isRemoteBackendConfigured()) {
+      const now = buildLocalTimestamp();
+      await remoteBackendService.bulkUpsert(
+        "categories",
+        buildLocalCategories(userId).map((category) => ({
+          ...category,
+          createdAt: category.createdAt ?? now,
+          updatedAt: now
+        }))
+      );
+      await refreshRemoteState(userId).catch(() => undefined);
+      return;
+    }
+
     if (!db) {
       await updateLocalState((state) => ({
         state: {
@@ -540,6 +850,21 @@ export const firestoreService = {
   },
 
   async createGoal(goal: Omit<Goal, "id" | "createdAt" | "updatedAt">) {
+    if (!db && isRemoteBackendConfigured()) {
+      const now = buildLocalTimestamp();
+      const id = buildLocalId("goal");
+      await remoteBackendService.bulkUpsert("goals", [
+        {
+          ...goal,
+          id,
+          createdAt: now,
+          updatedAt: now
+        }
+      ]);
+      await refreshRemoteState(goal.userId).catch(() => undefined);
+      return id;
+    }
+
     if (!db) {
       return updateLocalState((state) => {
         const now = buildLocalTimestamp();
@@ -572,6 +897,22 @@ export const firestoreService = {
   },
 
   async updateGoal(id: string, input: Partial<Omit<Goal, "id" | "userId" | "createdAt" | "updatedAt">>) {
+    if (!db && isRemoteBackendConfigured()) {
+      const userId =
+        Array.from(remoteStateCache.entries()).find(([, state]) => state.goals.some((goal) => goal.id === id))?.[0] ?? null;
+
+      await remoteBackendService.patchGoal(id, {
+        ...input,
+        updatedAt: buildLocalTimestamp()
+      } as Partial<Goal>);
+
+      if (userId) {
+        await refreshRemoteState(userId).catch(() => undefined);
+      }
+
+      return;
+    }
+
     if (!db) {
       await updateLocalState((state) => ({
         state: {

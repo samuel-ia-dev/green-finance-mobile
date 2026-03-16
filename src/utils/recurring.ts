@@ -8,6 +8,7 @@ type BuildRecurringInstallmentsInput = {
   config: RecurringConfig;
   existingDates?: string[];
   parentRecurringId?: string;
+  referenceDate?: Date;
   userId: string;
 };
 
@@ -41,11 +42,26 @@ function toDateString(date: Date) {
 }
 
 export function resolveRecurringEndDate(startDate: string, endDate?: string) {
-  if (endDate) {
-    return endDate;
+  const normalizedEndDate = endDate?.trim();
+
+  if (normalizedEndDate) {
+    return normalizedEndDate;
   }
 
-  return `${startDate.slice(0, 4)}-12-31`;
+  return undefined;
+}
+
+export function resolveRecurringGenerationHorizon(startDate: string, endDate?: string, referenceDate = new Date()) {
+  const explicitEndDate = resolveRecurringEndDate(startDate, endDate);
+
+  if (explicitEndDate) {
+    return explicitEndDate;
+  }
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const minimumYear = start.getFullYear();
+  const referenceYear = referenceDate.getFullYear() + 1;
+  return `${Math.max(minimumYear, referenceYear)}-12-31`;
 }
 
 export function buildRecurringSeriesSignature(input: RecurringSeriesInput) {
@@ -92,7 +108,7 @@ export function isSameRecurringSeries(left: RecurringSeriesInput, right: Recurri
 
 export function buildRecurringInstallments(input: BuildRecurringInstallmentsInput): Transaction[] {
   const start = new Date(`${input.config.startDate}T00:00:00`);
-  const resolvedEndDate = resolveRecurringEndDate(input.config.startDate, input.config.endDate);
+  const resolvedEndDate = resolveRecurringGenerationHorizon(input.config.startDate, input.config.endDate, input.referenceDate);
   const maxDate = new Date(`${resolvedEndDate}T00:00:00`);
   const existingDates = new Set(input.existingDates ?? []);
   const transactions: Transaction[] = [];
@@ -115,7 +131,7 @@ export function buildRecurringInstallments(input: BuildRecurringInstallmentsInpu
       isRecurring: true,
       recurringFrequency: input.config.frequency,
       recurringStartDate: input.config.startDate,
-      recurringEndDate: resolvedEndDate,
+      recurringEndDate: resolveRecurringEndDate(input.config.startDate, input.config.endDate),
       parentRecurringId: input.parentRecurringId,
       isPaid: false,
       createdAt: date,

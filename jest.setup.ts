@@ -92,6 +92,10 @@ jest.mock("firebase/firestore", () => ({
   deleteDoc: jest.fn(),
   doc: jest.fn((_db, path, id) => `${path}/${id}`),
   serverTimestamp: jest.fn(() => "SERVER_TIMESTAMP"),
+  writeBatch: jest.fn(() => ({
+    set: jest.fn(),
+    commit: jest.fn().mockResolvedValue(undefined)
+  })),
   onSnapshot: jest.fn((_query, callback) => {
     callback({
       docs: []
