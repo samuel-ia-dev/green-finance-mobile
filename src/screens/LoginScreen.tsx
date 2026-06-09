@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { ScreenShell } from "@/components/ScreenShell";
 import { useAppTheme } from "@/context/ThemeContext";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { authService, mapAuthError } from "@/services/authService";
 import { biometricAuthService } from "@/services/biometricAuthService";
+import { savedAccessService } from "@/services/savedAccessService";
 import { radii, spacing } from "@/theme/tokens";
 
 type Props = {
@@ -23,13 +24,17 @@ export function LoginScreen({ navigation }: Props) {
   const [error, setError] = useState("");
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState("biometria");
-  const errorBackground = theme.dark ? "rgba(245, 158, 11, 0.12)" : "#FFF7ED";
+  const [saveAccessEnabled, setSaveAccessEnabled] = useState(true);
+  const errorBackground = theme.dark ? "rgba(183, 245, 59, 0.12)" : "#F4FFE4";
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadBiometricStatus() {
-      const status = await biometricAuthService.getStatus();
+    async function loadAccessOptions() {
+      const [status, savedAccessEnabledValue] = await Promise.all([
+        biometricAuthService.getStatus(),
+        savedAccessService.isEnabled()
+      ]);
 
       if (!isMounted) {
         return;
@@ -37,21 +42,44 @@ export function LoginScreen({ navigation }: Props) {
 
       setBiometricEnabled(status.isEnabled);
       setBiometricLabel(status.label);
+      setSaveAccessEnabled(savedAccessEnabledValue);
     }
 
-    void loadBiometricStatus();
+    void loadAccessOptions();
 
     return () => {
       isMounted = false;
     };
   }, []);
 
+  async function handleSaveAccessChange(nextValue: boolean) {
+    setSaveAccessEnabled(nextValue);
+    await savedAccessService.setEnabled(nextValue);
+  }
+
   async function handleLogin() {
+    const webBiometricRegistration =
+      Platform.OS === "web" && !biometricAuthService.hasStoredWebCredential() && email.trim() && password.trim()
+        ? biometricAuthService.rememberCredentials(email, password).catch(() => false)
+        : null;
+
     try {
       setError("");
       await authService.login(email, password);
-      await biometricAuthService.rememberCredentials(email, password).catch(() => false);
+      if (saveAccessEnabled) {
+        await savedAccessService.rememberCredentials(email, password).catch(() => false);
+      } else {
+        await savedAccessService.clearSavedAccess().catch(() => undefined);
+      }
+      if (webBiometricRegistration) {
+        await webBiometricRegistration;
+      } else {
+        await biometricAuthService.rememberCredentials(email, password).catch(() => false);
+      }
     } catch (currentError) {
+      if (webBiometricRegistration) {
+        await biometricAuthService.clearCredentials().catch(() => undefined);
+      }
       setError(typeof mapAuthError === "function" ? mapAuthError(currentError) : "Email ou senha inválidos.");
     }
   }
@@ -81,7 +109,7 @@ export function LoginScreen({ navigation }: Props) {
           </View>
           <View style={styles.heroBadge}>
             <View style={styles.heroBadgeDot} />
-            <Text style={styles.heroBadgeLabel}>Green Finance</Text>
+            <Text style={styles.heroBadgeLabel}>Suas finanças na palma da mão</Text>
           </View>
           <Text style={[styles.heroTitle, isCompact && styles.heroTitleCompact]}>Seu dinheiro em ordem, com uma entrada mais elegante.</Text>
           <Text style={styles.heroSubtitle}>Acompanhe saldo, despesas, recorrências e metas em uma experiência mais clara desde o primeiro acesso.</Text>
@@ -128,6 +156,23 @@ export function LoginScreen({ navigation }: Props) {
             />
           </View>
 
+          <View style={[styles.preferenceCard, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft }]}>
+            <View style={styles.switchRow}>
+              <View style={styles.preferenceCopy}>
+                <Text style={[styles.preferenceTitle, { color: theme.colors.text }]}>Salvar acesso</Text>
+                <Text style={[styles.preferenceDescription, { color: theme.colors.textMuted }]}>Mantém esta conta conectada neste aparelho.</Text>
+              </View>
+              <Switch
+                value={saveAccessEnabled}
+                onValueChange={(nextValue) => void handleSaveAccessChange(nextValue)}
+                accessibilityLabel="Salvar acesso"
+              />
+            </View>
+            <Text style={[styles.preferenceHint, { color: theme.colors.textMuted }]}>
+              Usando a mesma conta em outro celular, as despesas ficam sincronizadas.
+            </Text>
+          </View>
+
           {error ? (
             <View style={[styles.errorCard, { backgroundColor: errorBackground, borderColor: theme.colors.warning }]}>
               <Text style={[styles.error, { color: theme.colors.warning }]}>{error}</Text>
@@ -167,102 +212,105 @@ const styles = StyleSheet.create({
     justifyContent: "center"
   },
   layout: {
-    gap: spacing.md,
+    gap: spacing.sm,
     marginHorizontal: "auto",
     maxWidth: 460,
     width: "100%"
   },
   hero: {
     borderRadius: radii.lg,
-    gap: spacing.sm,
+    gap: spacing.xs,
     overflow: "hidden",
-    padding: spacing.xxl
+    padding: spacing.lg
   },
   heroCompact: {
-    padding: spacing.xl
+    padding: spacing.md
   },
   heroBrandRow: {
-    marginBottom: spacing.xs
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 0
   },
   heroIcon: {
     borderRadius: radii.md,
-    height: 72,
-    width: 72
+    height: 50,
+    width: 50
   },
   heroIconCompact: {
-    height: 60,
-    width: 60
+    height: 44,
+    width: 44
   },
   heroBadge: {
     alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(11, 16, 32, 0.24)",
-    borderColor: "rgba(255, 255, 255, 0.14)",
+    alignSelf: "center",
+    backgroundColor: "rgba(7, 24, 17, 0.36)",
+    borderColor: "rgba(183, 245, 59, 0.18)",
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs
+    paddingVertical: 5
   },
   heroBadgeDot: {
-    backgroundColor: "#22C55E",
+    backgroundColor: "#B7F53B",
     borderRadius: radii.pill,
-    height: 8,
-    width: 8
+    height: 7,
+    width: 7
   },
   heroBadgeLabel: {
     color: "#FFFFFF",
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "700"
   },
   heroTitle: {
     color: "#FFFFFF",
-    fontSize: 30,
+    fontSize: 21,
     fontWeight: "800",
-    lineHeight: 36,
-    maxWidth: 320
+    lineHeight: 26,
+    maxWidth: 260
   },
   heroTitleCompact: {
-    fontSize: 26,
-    lineHeight: 31
+    fontSize: 19,
+    lineHeight: 24
   },
   heroSubtitle: {
-    color: "#DBEAFE",
-    fontSize: 14,
-    lineHeight: 21,
-    maxWidth: 360
+    color: "#D6E6DB",
+    fontSize: 12,
+    lineHeight: 17,
+    maxWidth: 300
   },
   heroMetrics: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.xs
+    gap: 6,
+    marginTop: 0
   },
   metricCard: {
-    backgroundColor: "rgba(11, 16, 32, 0.22)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "rgba(10, 27, 20, 0.52)",
+    borderColor: "rgba(183, 245, 59, 0.14)",
     borderRadius: radii.md,
     borderWidth: 1,
     flexGrow: 1,
-    gap: 4,
-    minWidth: 160,
-    padding: spacing.sm
+    gap: 2,
+    minWidth: 142,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 1
   },
   metricCardFull: {
     minWidth: "100%"
   },
   metricLabel: {
-    color: "#BFDBFE",
-    fontSize: 11,
+    color: "#B7F53B",
+    fontSize: 9,
     fontWeight: "700",
     textTransform: "uppercase"
   },
   metricValue: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "600",
-    lineHeight: 18
+    lineHeight: 15
   },
   formCard: {
     borderRadius: radii.lg,
@@ -297,9 +345,38 @@ const styles = StyleSheet.create({
   fieldGroup: {
     gap: spacing.xs
   },
+  switchRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between"
+  },
   fieldLabel: {
     fontSize: 13,
     fontWeight: "700"
+  },
+  preferenceCard: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  preferenceCopy: {
+    flex: 1,
+    gap: 2
+  },
+  preferenceTitle: {
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  preferenceDescription: {
+    fontSize: 12,
+    lineHeight: 18
+  },
+  preferenceHint: {
+    fontSize: 12,
+    lineHeight: 18
   },
   input: {
     borderWidth: 1,

@@ -12,7 +12,7 @@ type CategoryChartProps = {
   healthStatus: DashboardSummary["healthStatus"];
 };
 
-const chartColors = [palette.green, palette.blue, palette.warning, "#F97316", "#EC4899", "#8B5CF6"];
+const chartColors = [palette.success, palette.green, palette.blue, "#34D399", "#84CC16", "#64748B"];
 const chartWidth = 300;
 const chartHeight = 190;
 const chartPaddingTop = 18;

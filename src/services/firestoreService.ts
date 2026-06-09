@@ -14,13 +14,16 @@ import {
 } from "firebase/firestore";
 import { cacheService } from "@/services/cacheService";
 import { db } from "@/services/firebase";
-import { isRemoteBackendConfigured, remoteBackendService } from "@/services/remoteBackendService";
+import { isRemoteBackendConfigured, isRemoteNetworkError, remoteBackendService } from "@/services/remoteBackendService";
 import { Category, FinanceHydrationPayload, Goal, Transaction, TransactionInput, UserSettings } from "@/types/finance";
 import { buildRecurringInstallments, resolveRecurringEndDate } from "@/utils/recurring";
 
+const FINANCE_CACHE_KEY = "finance-cache";
 const LOCAL_FINANCE_KEY = "green-finance-local-finance";
 const LOCAL_DEMO_USER_ID = "local-demo-user";
 const REMOTE_POLL_INTERVAL_MS = 2000;
+const REMOTE_STATE_CACHE_KEY_PREFIX = "green-finance.remote-state";
+const REMOTE_MUTATION_QUEUE_KEY = "green-finance.remote-mutation-queue";
 
 type LocalTransactionsSubscriber = {
   userId: string;
@@ -57,6 +60,51 @@ let localStatePromise: Promise<FinanceHydrationPayload> | null = null;
 const remoteStateCache = new Map<string, FinanceHydrationPayload>();
 const remotePollingHandles = new Map<string, ReturnType<typeof setInterval>>();
 const remoteRefreshPromises = new Map<string, Promise<FinanceHydrationPayload>>();
+let remoteMutationQueueCache: RemoteMutation[] | null = null;
+let remoteMutationQueuePromise: Promise<RemoteMutation[]> | null = null;
+const remoteFlushPromises = new Map<string, Promise<void>>();
+
+type RemoteBulkUpsertCollection = "categories" | "goals" | "transactions";
+
+type RemoteBulkUpsertMutation = {
+  kind: "bulk-upsert";
+  userId: string;
+  collection: RemoteBulkUpsertCollection;
+  items: (Category | Goal | Transaction)[];
+};
+
+type RemotePatchTransactionMutation = {
+  kind: "patch-transaction";
+  userId: string;
+  id: string;
+  input: Partial<Transaction>;
+};
+
+type RemoteDeleteTransactionMutation = {
+  kind: "delete-transaction";
+  userId: string;
+  id: string;
+};
+
+type RemoteSaveSettingsMutation = {
+  kind: "save-settings";
+  userId: string;
+  settings: UserSettings;
+};
+
+type RemotePatchGoalMutation = {
+  kind: "patch-goal";
+  userId: string;
+  id: string;
+  input: Partial<Goal>;
+};
+
+type RemoteMutation =
+  | RemoteBulkUpsertMutation
+  | RemotePatchTransactionMutation
+  | RemoteDeleteTransactionMutation
+  | RemoteSaveSettingsMutation
+  | RemotePatchGoalMutation;
 
 const transactionsCollection = () => collection(db!, "transactions");
 const categoriesCollection = () => collection(db!, "categories");
@@ -86,6 +134,10 @@ function buildGeneratedRecurringId(input: Pick<TransactionInput, "date" | "paren
   return input.id ?? `${input.parentRecurringId ?? "recurring"}-${input.date}`;
 }
 
+function buildRemoteStateKey(userId: string) {
+  return `${REMOTE_STATE_CACHE_KEY_PREFIX}.${userId}`;
+}
+
 function chunkItems<T>(items: T[], size: number) {
   const chunks: T[][] = [];
 
@@ -97,13 +149,13 @@ function chunkItems<T>(items: T[], size: number) {
 }
 
 export const defaultCategories = [
-  { name: "Alimentação", color: "#16A34A", icon: "restaurant-outline" },
-  { name: "Transporte", color: "#2563EB", icon: "car-outline" },
-  { name: "Moradia", color: "#0EA5E9", icon: "home-outline" },
+  { name: "Alimentação", color: "#B7F53B", icon: "restaurant-outline" },
+  { name: "Transporte", color: "#31E1F7", icon: "car-outline" },
+  { name: "Moradia", color: "#22C55E", icon: "home-outline" },
   { name: "Saúde", color: "#EF4444", icon: "medkit-outline" },
-  { name: "Educação", color: "#8B5CF6", icon: "school-outline" },
-  { name: "Lazer", color: "#F59E0B", icon: "game-controller-outline" },
-  { name: "Investimentos", color: "#14B8A6", icon: "trending-up-outline" },
+  { name: "Educação", color: "#34D399", icon: "school-outline" },
+  { name: "Lazer", color: "#87E64B", icon: "game-controller-outline" },
+  { name: "Investimentos", color: "#2DD4BF", icon: "trending-up-outline" },
   { name: "Outros", color: "#64748B", icon: "apps-outline" }
 ];
 
@@ -143,6 +195,32 @@ function buildDemoState(): FinanceHydrationPayload {
       currency: "BRL",
       displayName: "Modo demo",
       email: "demo@greenfinance.local"
+    }
+  };
+}
+
+function buildEmptyRemoteState(): FinanceHydrationPayload {
+  return {
+    transactions: [],
+    categories: [],
+    goals: [],
+    settings: {
+      theme: "system",
+      currency: "BRL"
+    }
+  };
+}
+
+function normalizeRemoteState(state: FinanceHydrationPayload | null | undefined): FinanceHydrationPayload {
+  const baseState = buildEmptyRemoteState();
+
+  return {
+    transactions: state?.transactions ?? baseState.transactions,
+    categories: state?.categories ?? baseState.categories,
+    goals: state?.goals ?? baseState.goals,
+    settings: {
+      ...baseState.settings,
+      ...(state?.settings ?? {})
     }
   };
 }
@@ -252,6 +330,91 @@ function emitRemoteState(userId: string, state: FinanceHydrationPayload) {
   });
 }
 
+async function getRemoteMutationQueue() {
+  if (remoteMutationQueueCache) {
+    return remoteMutationQueueCache;
+  }
+
+  if (remoteMutationQueuePromise) {
+    return remoteMutationQueuePromise;
+  }
+
+  remoteMutationQueuePromise = cacheService
+    .getItem<RemoteMutation[] | null>(REMOTE_MUTATION_QUEUE_KEY, null)
+    .then((stored) => {
+      remoteMutationQueueCache = stored ?? [];
+      return remoteMutationQueueCache;
+    })
+    .finally(() => {
+      remoteMutationQueuePromise = null;
+    });
+
+  return remoteMutationQueuePromise;
+}
+
+async function persistRemoteMutationQueue(queue: RemoteMutation[]) {
+  remoteMutationQueueCache = queue;
+  await cacheService.setItem(REMOTE_MUTATION_QUEUE_KEY, queue);
+}
+
+async function enqueueRemoteMutation(mutation: RemoteMutation) {
+  const queue = await getRemoteMutationQueue();
+  await persistRemoteMutationQueue([...queue, mutation]);
+}
+
+async function readPersistedRemoteState(userId: string) {
+  const storedState = await cacheService.getItem<FinanceHydrationPayload | null>(buildRemoteStateKey(userId), null);
+
+  if (storedState) {
+    return normalizeRemoteState(storedState);
+  }
+
+  const cachedFinance = await cacheService.getItem<FinanceHydrationPayload | null>(FINANCE_CACHE_KEY, null);
+  return normalizeRemoteState(cachedFinance);
+}
+
+async function getRemoteState(userId: string) {
+  const cachedState = remoteStateCache.get(userId);
+
+  if (cachedState) {
+    return cachedState;
+  }
+
+  const storedState = await readPersistedRemoteState(userId);
+  remoteStateCache.set(userId, storedState);
+  return storedState;
+}
+
+async function persistRemoteState(userId: string, state: FinanceHydrationPayload) {
+  const normalizedState = normalizeRemoteState(state);
+  emitRemoteState(userId, normalizedState);
+  await cacheService.setItem(buildRemoteStateKey(userId), normalizedState);
+  return normalizedState;
+}
+
+function upsertItemsById<T extends { id: string }>(currentItems: T[], nextItems: T[]) {
+  const itemsById = new Map(currentItems.map((item) => [item.id, item]));
+
+  nextItems.forEach((item) => {
+    const currentItem = itemsById.get(item.id);
+    itemsById.set(item.id, currentItem ? { ...currentItem, ...item } : item);
+  });
+
+  return Array.from(itemsById.values());
+}
+
+async function updateRemoteStateLocally(userId: string, updater: (state: FinanceHydrationPayload) => FinanceHydrationPayload) {
+  const currentState = await getRemoteState(userId);
+  return persistRemoteState(userId, updater(currentState));
+}
+
+async function primeRemoteStateFromCache(userId: string) {
+  const state = await getRemoteState(userId);
+  emitRemoteState(userId, state);
+  await cacheService.setItem(buildRemoteStateKey(userId), state);
+  return state;
+}
+
 function getRemoteSubscriberCount(userId: string) {
   return (
     Array.from(remoteTransactionsSubscribers).filter((subscriber) => subscriber.userId === userId).length +
@@ -268,8 +431,8 @@ async function refreshRemoteState(userId: string) {
     return currentRefresh;
   }
 
-  const refreshPromise = remoteBackendService.getFinanceBootstrap().then((state) => {
-    emitRemoteState(userId, state);
+  const refreshPromise = remoteBackendService.getFinanceBootstrap().then(async (state) => {
+    await persistRemoteState(userId, state);
     return state;
   });
 
@@ -280,14 +443,19 @@ async function refreshRemoteState(userId: string) {
   });
 }
 
+async function syncRemoteState(userId: string) {
+  await flushPendingRemoteMutations(userId);
+  return refreshRemoteState(userId);
+}
+
 function ensureRemotePolling(userId: string) {
   if (remotePollingHandles.has(userId)) {
     return;
   }
 
-  void refreshRemoteState(userId).catch(() => undefined);
+  void syncRemoteState(userId).catch(() => undefined);
   const handle = setInterval(() => {
-    void refreshRemoteState(userId).catch(() => undefined);
+    void syncRemoteState(userId).catch(() => undefined);
   }, REMOTE_POLL_INTERVAL_MS);
   remotePollingHandles.set(userId, handle);
 }
@@ -321,6 +489,156 @@ function findRemoteTransactionUserId(id: string) {
   return null;
 }
 
+function findRemoteGoalUserId(id: string) {
+  for (const [userId, state] of remoteStateCache.entries()) {
+    if (state.goals.some((goal) => goal.id === id)) {
+      return userId;
+    }
+  }
+
+  return null;
+}
+
+async function applyRemoteBulkUpsert(
+  userId: string,
+  collection: RemoteBulkUpsertCollection,
+  items: (Category | Goal | Transaction)[]
+) {
+  if (!items.length) {
+    return;
+  }
+
+  await updateRemoteStateLocally(userId, (state) => {
+    if (collection === "transactions") {
+      return {
+        ...state,
+        transactions: upsertItemsById(state.transactions, items as Transaction[])
+      };
+    }
+
+    if (collection === "categories") {
+      return {
+        ...state,
+        categories: upsertItemsById(state.categories, items as Category[])
+      };
+    }
+
+    return {
+      ...state,
+      goals: upsertItemsById(state.goals, items as Goal[])
+    };
+  });
+}
+
+async function applyRemoteTransactionPatch(userId: string, id: string, input: Partial<Transaction>) {
+  await updateRemoteStateLocally(userId, (state) => ({
+    ...state,
+    transactions: state.transactions.map((transaction) =>
+      transaction.id === id
+        ? {
+            ...transaction,
+            ...input
+          }
+        : transaction
+    )
+  }));
+}
+
+async function applyRemoteTransactionDelete(userId: string, id: string) {
+  await updateRemoteStateLocally(userId, (state) => ({
+    ...state,
+    transactions: state.transactions.filter((transaction) => transaction.id !== id)
+  }));
+}
+
+async function applyRemoteSettings(userId: string, settings: UserSettings) {
+  await updateRemoteStateLocally(userId, (state) => ({
+    ...state,
+    settings: {
+      ...state.settings,
+      ...settings
+    }
+  }));
+}
+
+async function applyRemoteGoalPatch(userId: string, id: string, input: Partial<Goal>) {
+  await updateRemoteStateLocally(userId, (state) => ({
+    ...state,
+    goals: state.goals.map((goal) =>
+      goal.id === id
+        ? {
+            ...goal,
+            ...input
+          }
+        : goal
+    )
+  }));
+}
+
+async function executeRemoteMutation(mutation: RemoteMutation) {
+  switch (mutation.kind) {
+    case "bulk-upsert":
+      await remoteBackendService.bulkUpsert(mutation.collection, mutation.items);
+      return;
+    case "patch-transaction":
+      await remoteBackendService.patchTransaction(mutation.id, mutation.input);
+      return;
+    case "delete-transaction":
+      await remoteBackendService.deleteTransaction(mutation.id);
+      return;
+    case "save-settings":
+      await remoteBackendService.saveSettings(mutation.settings);
+      return;
+    case "patch-goal":
+      await remoteBackendService.patchGoal(mutation.id, mutation.input);
+      return;
+  }
+}
+
+async function flushPendingRemoteMutations(userId: string) {
+  const currentFlush = remoteFlushPromises.get(userId);
+
+  if (currentFlush) {
+    return currentFlush;
+  }
+
+  const flushPromise = (async () => {
+    const queuedMutations = await getRemoteMutationQueue();
+    const nextQueue = [...queuedMutations];
+    let queueChanged = false;
+
+    for (let index = 0; index < nextQueue.length; index += 1) {
+      const mutation = nextQueue[index];
+
+      if (mutation.userId !== userId) {
+        continue;
+      }
+
+      try {
+        await executeRemoteMutation(mutation);
+        nextQueue.splice(index, 1);
+        index -= 1;
+        queueChanged = true;
+      } catch (error) {
+        if (queueChanged) {
+          await persistRemoteMutationQueue(nextQueue);
+        }
+
+        throw error;
+      }
+    }
+
+    if (queueChanged) {
+      await persistRemoteMutationQueue(nextQueue);
+    }
+  })().finally(() => {
+    remoteFlushPromises.delete(userId);
+  });
+
+  remoteFlushPromises.set(userId, flushPromise);
+  return flushPromise;
+}
+
 async function persistLocalState(state: FinanceHydrationPayload) {
   localStateCache = state;
   await cacheService.setItem(LOCAL_FINANCE_KEY, state);
@@ -348,8 +666,23 @@ async function createGeneratedRecurringTransactions(input: TransactionInput[]) {
       updatedAt: now
     }));
 
-    await remoteBackendService.bulkUpsert("transactions", transactions);
-    await refreshRemoteState(input[0].userId).catch(() => undefined);
+    try {
+      await remoteBackendService.bulkUpsert("transactions", transactions);
+      await syncRemoteState(input[0].userId).catch(() => undefined);
+    } catch (error) {
+      if (!isRemoteNetworkError(error)) {
+        throw error;
+      }
+
+      await applyRemoteBulkUpsert(input[0].userId, "transactions", transactions);
+      await enqueueRemoteMutation({
+        kind: "bulk-upsert",
+        userId: input[0].userId,
+        collection: "transactions",
+        items: transactions
+      });
+    }
+
     return transactions.map((transaction) => transaction.id);
   }
 
@@ -460,8 +793,23 @@ export const firestoreService = {
         transactions.push(...generated);
       }
 
-      await remoteBackendService.bulkUpsert("transactions", transactions);
-      await refreshRemoteState(normalizedInput.userId).catch(() => undefined);
+      try {
+        await remoteBackendService.bulkUpsert("transactions", transactions);
+        await syncRemoteState(normalizedInput.userId).catch(() => undefined);
+      } catch (error) {
+        if (!isRemoteNetworkError(error)) {
+          throw error;
+        }
+
+        await applyRemoteBulkUpsert(normalizedInput.userId, "transactions", transactions);
+        await enqueueRemoteMutation({
+          kind: "bulk-upsert",
+          userId: normalizedInput.userId,
+          collection: "transactions",
+          items: transactions
+        });
+      }
+
       return id;
     }
 
@@ -552,18 +900,50 @@ export const firestoreService = {
     return generatedId;
   },
 
+  async primeRemoteStateFromCache(userId: string) {
+    if (db || !isRemoteBackendConfigured()) {
+      return null;
+    }
+
+    return primeRemoteStateFromCache(userId);
+  },
+
+  async flushPendingRemoteMutations(userId: string) {
+    if (db || !isRemoteBackendConfigured()) {
+      return;
+    }
+
+    await flushPendingRemoteMutations(userId);
+  },
+
   async updateTransaction(id: string, input: Partial<TransactionInput>) {
     if (!db && isRemoteBackendConfigured()) {
       const userId = input.userId ?? findRemoteTransactionUserId(id);
-
-      await remoteBackendService.patchTransaction(id, {
+      const nextInput = {
         ...input,
         updatedAt: buildLocalTimestamp()
-      });
+      };
 
-      if (userId) {
-        await refreshRemoteState(userId).catch(() => undefined);
+      try {
+        await remoteBackendService.patchTransaction(id, nextInput);
+
+        if (userId) {
+          await syncRemoteState(userId).catch(() => undefined);
+        }
+      } catch (error) {
+        if (!isRemoteNetworkError(error) || !userId) {
+          throw error;
+        }
+
+        await applyRemoteTransactionPatch(userId, id, nextInput as Partial<Transaction>);
+        await enqueueRemoteMutation({
+          kind: "patch-transaction",
+          userId,
+          id,
+          input: nextInput as Partial<Transaction>
+        });
       }
+
       return;
     }
 
@@ -596,11 +976,23 @@ export const firestoreService = {
   async deleteTransaction(id: string) {
     if (!db && isRemoteBackendConfigured()) {
       const userId = findRemoteTransactionUserId(id);
+      try {
+        await remoteBackendService.deleteTransaction(id);
 
-      await remoteBackendService.deleteTransaction(id);
+        if (userId) {
+          await syncRemoteState(userId).catch(() => undefined);
+        }
+      } catch (error) {
+        if (!isRemoteNetworkError(error) || !userId) {
+          throw error;
+        }
 
-      if (userId) {
-        await refreshRemoteState(userId).catch(() => undefined);
+        await applyRemoteTransactionDelete(userId, id);
+        await enqueueRemoteMutation({
+          kind: "delete-transaction",
+          userId,
+          id
+        });
       }
 
       return;
@@ -629,6 +1021,8 @@ export const firestoreService = {
 
       if (cachedState) {
         callback(sortTransactions(cachedState.transactions));
+      } else {
+        void primeRemoteStateFromCache(userId).catch(() => undefined);
       }
 
       ensureRemotePolling(userId);
@@ -668,6 +1062,8 @@ export const firestoreService = {
 
       if (cachedState) {
         callback(sortCategories(cachedState.categories));
+      } else {
+        void primeRemoteStateFromCache(userId).catch(() => undefined);
       }
 
       ensureRemotePolling(userId);
@@ -707,6 +1103,8 @@ export const firestoreService = {
 
       if (cachedState) {
         callback(sortGoals(cachedState.goals));
+      } else {
+        void primeRemoteStateFromCache(userId).catch(() => undefined);
       }
 
       ensureRemotePolling(userId);
@@ -746,6 +1144,8 @@ export const firestoreService = {
 
       if (cachedState) {
         callback(cachedState.settings);
+      } else {
+        void primeRemoteStateFromCache(userId).catch(() => undefined);
       }
 
       ensureRemotePolling(userId);
@@ -778,8 +1178,22 @@ export const firestoreService = {
 
   async saveUserSettings(userId: string, settings: UserSettings) {
     if (!db && isRemoteBackendConfigured()) {
-      await remoteBackendService.saveSettings(settings);
-      await refreshRemoteState(userId).catch(() => undefined);
+      try {
+        await remoteBackendService.saveSettings(settings);
+        await syncRemoteState(userId).catch(() => undefined);
+      } catch (error) {
+        if (!isRemoteNetworkError(error)) {
+          throw error;
+        }
+
+        await applyRemoteSettings(userId, settings);
+        await enqueueRemoteMutation({
+          kind: "save-settings",
+          userId,
+          settings
+        });
+      }
+
       return;
     }
 
@@ -812,15 +1226,29 @@ export const firestoreService = {
   async ensureDefaultCategories(userId: string) {
     if (!db && isRemoteBackendConfigured()) {
       const now = buildLocalTimestamp();
-      await remoteBackendService.bulkUpsert(
-        "categories",
-        buildLocalCategories(userId).map((category) => ({
-          ...category,
-          createdAt: category.createdAt ?? now,
-          updatedAt: now
-        }))
-      );
-      await refreshRemoteState(userId).catch(() => undefined);
+      const categories = buildLocalCategories(userId).map((category) => ({
+        ...category,
+        createdAt: category.createdAt ?? now,
+        updatedAt: now
+      }));
+
+      try {
+        await remoteBackendService.bulkUpsert("categories", categories);
+        await syncRemoteState(userId).catch(() => undefined);
+      } catch (error) {
+        if (!isRemoteNetworkError(error)) {
+          throw error;
+        }
+
+        await applyRemoteBulkUpsert(userId, "categories", categories);
+        await enqueueRemoteMutation({
+          kind: "bulk-upsert",
+          userId,
+          collection: "categories",
+          items: categories
+        });
+      }
+
       return;
     }
 
@@ -853,15 +1281,30 @@ export const firestoreService = {
     if (!db && isRemoteBackendConfigured()) {
       const now = buildLocalTimestamp();
       const id = buildLocalId("goal");
-      await remoteBackendService.bulkUpsert("goals", [
-        {
-          ...goal,
-          id,
-          createdAt: now,
-          updatedAt: now
+      const payload = {
+        ...goal,
+        id,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      try {
+        await remoteBackendService.bulkUpsert("goals", [payload]);
+        await syncRemoteState(goal.userId).catch(() => undefined);
+      } catch (error) {
+        if (!isRemoteNetworkError(error)) {
+          throw error;
         }
-      ]);
-      await refreshRemoteState(goal.userId).catch(() => undefined);
+
+        await applyRemoteBulkUpsert(goal.userId, "goals", [payload]);
+        await enqueueRemoteMutation({
+          kind: "bulk-upsert",
+          userId: goal.userId,
+          collection: "goals",
+          items: [payload]
+        });
+      }
+
       return id;
     }
 
@@ -898,16 +1341,30 @@ export const firestoreService = {
 
   async updateGoal(id: string, input: Partial<Omit<Goal, "id" | "userId" | "createdAt" | "updatedAt">>) {
     if (!db && isRemoteBackendConfigured()) {
-      const userId =
-        Array.from(remoteStateCache.entries()).find(([, state]) => state.goals.some((goal) => goal.id === id))?.[0] ?? null;
-
-      await remoteBackendService.patchGoal(id, {
+      const userId = findRemoteGoalUserId(id);
+      const nextInput = {
         ...input,
         updatedAt: buildLocalTimestamp()
-      } as Partial<Goal>);
+      } as Partial<Goal>;
 
-      if (userId) {
-        await refreshRemoteState(userId).catch(() => undefined);
+      try {
+        await remoteBackendService.patchGoal(id, nextInput);
+
+        if (userId) {
+          await syncRemoteState(userId).catch(() => undefined);
+        }
+      } catch (error) {
+        if (!isRemoteNetworkError(error) || !userId) {
+          throw error;
+        }
+
+        await applyRemoteGoalPatch(userId, id, nextInput);
+        await enqueueRemoteMutation({
+          kind: "patch-goal",
+          userId,
+          id,
+          input: nextInput
+        });
       }
 
       return;

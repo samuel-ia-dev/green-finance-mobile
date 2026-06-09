@@ -45,23 +45,30 @@ export function resolveRecurringEndDate(startDate: string, endDate?: string) {
   const normalizedEndDate = endDate?.trim();
 
   if (normalizedEndDate) {
+    const start = new Date(`${startDate}T00:00:00`);
+    const yearEnd = `${start.getFullYear()}-12-31`;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedEndDate) && normalizedEndDate > yearEnd) {
+      return yearEnd;
+    }
+
     return normalizedEndDate;
   }
 
   return undefined;
 }
 
-export function resolveRecurringGenerationHorizon(startDate: string, endDate?: string, referenceDate = new Date()) {
+export function resolveRecurringGenerationHorizon(startDate: string, endDate?: string, _referenceDate = new Date()) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const year = start.getFullYear();
+  const yearEnd = `${year}-12-31`;
   const explicitEndDate = resolveRecurringEndDate(startDate, endDate);
 
-  if (explicitEndDate) {
-    return explicitEndDate;
+  if (!explicitEndDate) {
+    return yearEnd;
   }
 
-  const start = new Date(`${startDate}T00:00:00`);
-  const minimumYear = start.getFullYear();
-  const referenceYear = referenceDate.getFullYear() + 1;
-  return `${Math.max(minimumYear, referenceYear)}-12-31`;
+  return explicitEndDate > yearEnd ? yearEnd : explicitEndDate;
 }
 
 export function buildRecurringSeriesSignature(input: RecurringSeriesInput) {

@@ -1,18 +1,18 @@
 export const palette = {
   // Troque estas cores para rebrandear o app inteiro sem tocar nos componentes.
-  green: "#16A34A",
-  blue: "#2563EB",
-  ink: "#0B1020",
-  slate: "#64748B",
+  green: "#22C55E",
+  blue: "#31E1F7",
+  ink: "#05100B",
+  slate: "#81978B",
   white: "#FFFFFF",
-  darkSurface: "#111827",
-  darkCard: "#172033",
-  lightSurface: "#F4F7FB",
-  lightCard: "#FFFFFF",
-  borderDark: "#1F2A44",
-  borderLight: "#D7DFEC",
-  success: "#22C55E",
-  warning: "#F59E0B",
+  darkSurface: "#030A07",
+  darkCard: "#0B1511",
+  lightSurface: "#EEF7F1",
+  lightCard: "#F9FFFB",
+  borderDark: "#22362D",
+  borderLight: "#CFE1D7",
+  success: "#B7F53B",
+  warning: "#87E64B",
   danger: "#EF4444"
 };
 

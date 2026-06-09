@@ -108,6 +108,314 @@ describe("authService", () => {
     });
   });
 
+  it("uses the canonical shared backend by default when firebase is not configured", async () => {
+    delete (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__;
+    (global.fetch as jest.Mock).mockImplementationOnce(() =>
+      mockJsonResponse(200, {
+        token: "session-default",
+        user: {
+          uid: "remote-user-default",
+          email: "default@example.com"
+        }
+      })
+    );
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    const user = await isolated!.authService.login("default@example.com", "123456");
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://green-finance-backend-pages.pages.dev/api/auth/login",
+      expect.objectContaining({
+        method: "POST"
+      })
+    );
+    expect(user).toEqual({
+      uid: "remote-user-default",
+      email: "default@example.com"
+    });
+  });
+
+  it("updates the password in the remote backend for the current authenticated session", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+    (global.fetch as jest.Mock)
+      .mockImplementationOnce(() =>
+        mockJsonResponse(200, {
+          token: "session-1",
+          user: {
+            uid: "remote-user-1",
+            email: "remote@example.com"
+          }
+        })
+      )
+      .mockImplementationOnce(() => mockJsonResponse(204, null));
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    await isolated!.authService.login("remote@example.com", "123456");
+    await isolated!.authService.updatePassword("654321");
+
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://backend.example.com/api/auth/password",
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({
+          Authorization: "Bearer session-1"
+        })
+      })
+    );
+  });
+
+  it("creates a shared account from a previous local account and migrates the saved data on login", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+
+    (global.fetch as jest.Mock)
+      .mockImplementationOnce(() => mockJsonResponse(401, { error: "invalid-credential" }))
+      .mockImplementationOnce(() =>
+        mockJsonResponse(201, {
+          token: "session-migrated",
+          user: {
+            uid: "cf-remote-user",
+            email: "migrate@example.com"
+          }
+        })
+      )
+      .mockImplementationOnce(() => mockJsonResponse(204, null))
+      .mockImplementationOnce(() => mockJsonResponse(204, null))
+      .mockImplementationOnce(() => mockJsonResponse(204, null));
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+    jest.doMock("@/services/cacheService", () => ({
+      cacheService: {
+        getItem: jest.fn(async (key: string, fallback: unknown) => {
+          if (key === "green-finance.local-accounts") {
+            return {
+              "migrate@example.com": {
+                uid: "local-migrate-example-com",
+                email: "migrate@example.com",
+                password: "123456"
+              }
+            };
+          }
+
+          if (key === "green-finance-local-finance") {
+            return {
+              transactions: [
+                {
+                  id: "tx-local-1",
+                  userId: "local-migrate-example-com",
+                  type: "expense",
+                  amount: 95,
+                  categoryId: "local-migrate-example-com-Moradia",
+                  categoryName: "Moradia",
+                  description: "Internet",
+                  date: "2026-03-10",
+                  isRecurring: false,
+                  createdAt: "2026-03-10T10:00:00.000Z",
+                  updatedAt: "2026-03-10T10:00:00.000Z"
+                }
+              ],
+              categories: [
+                {
+                  id: "local-migrate-example-com-Moradia",
+                  userId: "local-migrate-example-com",
+                  name: "Moradia",
+                  color: "#0EA5E9",
+                  icon: "home-outline",
+                  createdAt: "2026-03-10T10:00:00.000Z",
+                  updatedAt: "2026-03-10T10:00:00.000Z"
+                }
+              ],
+              goals: [],
+              settings: {
+                theme: "dark",
+                currency: "BRL"
+              }
+            };
+          }
+
+          return fallback;
+        }),
+        setItem: jest.fn(),
+        removeItem: jest.fn()
+      }
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    const user = await isolated!.authService.login("migrate@example.com", "123456");
+
+    expect(user).toEqual({
+      uid: "cf-remote-user",
+      email: "migrate@example.com"
+    });
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      1,
+      "https://backend.example.com/api/auth/login",
+      expect.objectContaining({
+        method: "POST"
+      })
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://backend.example.com/api/auth/register",
+      expect.objectContaining({
+        method: "POST"
+      })
+    );
+
+    const categoriesRequest = (global.fetch as jest.Mock).mock.calls[2];
+    const transactionsRequest = (global.fetch as jest.Mock).mock.calls[3];
+    const settingsRequest = (global.fetch as jest.Mock).mock.calls[4];
+
+    expect(categoriesRequest[0]).toBe("https://backend.example.com/api/categories/bulk-upsert");
+    expect(JSON.parse(String(categoriesRequest[1].body))).toEqual(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            id: "cf-remote-user-Moradia",
+            userId: "cf-remote-user",
+            name: "Moradia"
+          })
+        ])
+      })
+    );
+
+    expect(transactionsRequest[0]).toBe("https://backend.example.com/api/transactions/bulk-upsert");
+    expect(JSON.parse(String(transactionsRequest[1].body))).toEqual({
+      items: [
+        expect.objectContaining({
+          id: "tx-local-1",
+          userId: "cf-remote-user",
+          categoryId: "cf-remote-user-Moradia",
+          categoryName: "Moradia",
+          description: "Internet"
+        })
+      ]
+    });
+
+    expect(settingsRequest[0]).toBe("https://backend.example.com/api/settings");
+    expect(JSON.parse(String(settingsRequest[1].body))).toEqual({
+      theme: "dark",
+      currency: "BRL",
+      email: "migrate@example.com"
+    });
+
+    jest.dontMock("@/services/cacheService");
+  });
+
+  it("clears the saved remote session when logging out", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+    (global.fetch as jest.Mock)
+      .mockImplementationOnce(() =>
+        mockJsonResponse(200, {
+          token: "session-1",
+          user: {
+            uid: "remote-user-1",
+            email: "remote@example.com"
+          }
+        })
+      );
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    await isolated!.authService.login("remote@example.com", "123456");
+    (global.fetch as jest.Mock).mockClear();
+
+    await isolated!.authService.logout();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://backend.example.com/api/auth/logout",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer session-1"
+        })
+      })
+    );
+
+    (global.fetch as jest.Mock).mockClear();
+
+    const user = await isolated!.authService.resumeSession();
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(user).toBeNull();
+  });
+
+  it("restores the cached remote session while offline", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+    (global.fetch as jest.Mock).mockRejectedValue(new TypeError("Network request failed"));
+
+    jest.resetModules();
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+    jest.doMock("@/services/cacheService", () => ({
+      cacheService: {
+        getItem: jest.fn(async (key: string, fallback: unknown) =>
+          key === "green-finance.remote-session"
+            ? {
+                token: "session-offline",
+                user: {
+                  uid: "remote-user-offline",
+                  email: "offline@example.com"
+                }
+              }
+            : fallback
+        ),
+        setItem: jest.fn(),
+        removeItem: jest.fn()
+      }
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    const user = await isolated!.authService.resumeSession();
+
+    expect(user).toEqual({
+      uid: "remote-user-offline",
+      email: "offline@example.com"
+    });
+  });
+
   it("starts logged out on subscribe even when a remote session was saved before", async () => {
     (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
       "https://backend.example.com/api";
@@ -321,6 +629,32 @@ describe("authService", () => {
     expect(user).toEqual({
       uid: "local-fresh-example-com",
       email: "fresh@example.com"
+    });
+  });
+
+  it("updates the local password and accepts the new one on the next login", async () => {
+    jest.resetModules();
+    jest.dontMock("@/services/cacheService");
+    jest.doMock("@/services/firebase", () => ({
+      auth: null
+    }));
+
+    let isolated: typeof import("@/services/authService");
+    jest.isolateModules(() => {
+      isolated = require("@/services/authService");
+    });
+
+    await isolated!.authService.register("reset@example.com", "123456");
+    await isolated!.authService.updatePassword("654321");
+    await isolated!.authService.logout();
+
+    await expect(isolated!.authService.login("reset@example.com", "123456")).rejects.toThrow("auth/invalid-credential");
+
+    const user = await isolated!.authService.login("reset@example.com", "654321");
+
+    expect(user).toEqual({
+      uid: "local-reset-example-com",
+      email: "reset@example.com"
     });
   });
 

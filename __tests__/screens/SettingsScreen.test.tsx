@@ -3,6 +3,7 @@ import { SettingsScreen } from "@/screens/SettingsScreen";
 import { authService } from "@/services/authService";
 import { biometricAuthService } from "@/services/biometricAuthService";
 import { exportService } from "@/services/exportService";
+import { savedAccessService } from "@/services/savedAccessService";
 import { useFinanceStore } from "@/store/useFinanceStore";
 
 jest.mock("@/services/exportService", () => ({
@@ -31,6 +32,16 @@ jest.mock("@/services/biometricAuthService", () => ({
   }
 }));
 
+jest.mock("@/services/savedAccessService", () => ({
+  savedAccessService: {
+    isEnabled: jest.fn(),
+    setEnabled: jest.fn(),
+    rememberCredentials: jest.fn(),
+    clearSavedAccess: jest.fn(),
+    resumeSavedAccess: jest.fn()
+  }
+}));
+
 describe("SettingsScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -39,6 +50,8 @@ describe("SettingsScreen", () => {
       isEnabled: true,
       label: "digital"
     });
+    (savedAccessService.isEnabled as jest.Mock).mockResolvedValue(true);
+    (savedAccessService.clearSavedAccess as jest.Mock).mockResolvedValue(undefined);
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-03-11T12:00:00Z"));
     useFinanceStore.setState({
@@ -94,19 +107,29 @@ describe("SettingsScreen", () => {
     expect(screen.getByText("Sair")).toBeTruthy();
     expect(screen.getByText("Desativar biometria")).toBeTruthy();
 
-    fireEvent(screen.getByRole("switch"), "valueChange", true);
+    fireEvent(screen.getByLabelText("Modo escuro"), "valueChange", true);
+    fireEvent(screen.getByLabelText("Salvar acesso"), "valueChange", false);
     await act(async () => {
       fireEvent.press(screen.getByText("Desativar biometria"));
     });
-    fireEvent.press(screen.getByText("Sair"));
+    await act(async () => {
+      fireEvent.press(screen.getByText("Sair"));
+      await Promise.resolve();
+    });
 
     expect(screen.getByText("Modo escuro")).toBeTruthy();
+    expect(screen.getByText("Salvar acesso")).toBeTruthy();
     expect(biometricAuthService.clearCredentials).toHaveBeenCalled();
+    expect(savedAccessService.setEnabled).toHaveBeenCalledWith(false);
+    expect(savedAccessService.clearSavedAccess).toHaveBeenCalled();
     expect(authService.logout).toHaveBeenCalled();
   });
 
-  it("exports only the current month financial data", () => {
+  it("exports only the current month financial data", async () => {
     const screen = render(<SettingsScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     fireEvent.press(screen.getByText("Exportar CSV"));
     fireEvent.press(screen.getByText("Exportar PDF"));

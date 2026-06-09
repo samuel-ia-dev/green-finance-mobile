@@ -28,6 +28,7 @@ type FinanceState = {
   goals: Goal[];
   settings: UserSettings;
   dashboard: DashboardSummary;
+  activeMonthKey: string;
   editingTransaction: Transaction | null;
   isSyncing: boolean;
   hydrate: (payload: FinanceHydrationPayload) => void;
@@ -35,6 +36,7 @@ type FinanceState = {
   setCategories: (categories: Category[]) => void;
   setGoals: (goals: Goal[]) => void;
   setSettings: (settings: Partial<UserSettings>) => void;
+  setActiveMonthKey: (monthKey: string) => void;
   addTransaction: (transaction: Transaction) => void;
   updateTransactionLocal: (id: string, input: Partial<Transaction>) => void;
   removeTransaction: (id: string) => void;
@@ -89,6 +91,7 @@ export const useFinanceStore = create<FinanceState>((set) => ({
   goals: [],
   settings: defaultSettings,
   dashboard: emptyDashboard,
+  activeMonthKey: getMonthKey(),
   editingTransaction: null,
   isSyncing: false,
 
@@ -127,6 +130,8 @@ export const useFinanceStore = create<FinanceState>((set) => ({
         ...settings
       }
     })),
+
+  setActiveMonthKey: (monthKey) => set({ activeMonthKey: monthKey }),
 
   addTransaction: (transaction) =>
     set((state) => {
@@ -177,6 +182,7 @@ export const useFinanceStore = create<FinanceState>((set) => ({
       goals: [],
       settings: defaultSettings,
       dashboard: emptyDashboard,
+      activeMonthKey: getMonthKey(),
       editingTransaction: null,
       isSyncing: false
     })

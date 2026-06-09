@@ -1,132 +1,177 @@
-import { createElement, useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useMemo, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { CategoryChart } from "@/components/CategoryChart";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { ScreenShell } from "@/components/ScreenShell";
-import { SectionCard } from "@/components/SectionCard";
-import { SummaryHero } from "@/components/SummaryHero";
-import { TransactionRow } from "@/components/TransactionRow";
 import { useAppTheme } from "@/context/ThemeContext";
 import { useFinanceRealtime } from "@/hooks/useFinanceRealtime";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { AppTabParamList } from "@/navigation/types";
-import { firestoreService } from "@/services/firestoreService";
 import { useFinanceStore } from "@/store/useFinanceStore";
 import { Transaction } from "@/types/finance";
 import { buildDashboardSummary } from "@/utils/dashboard";
-import { formatCurrency, getMonthKey } from "@/utils/format";
-import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
-import { spacing } from "@/theme/tokens";
+import { formatCurrency, formatShortDate, shiftMonthKey } from "@/utils/format";
+import { palette, radii, spacing } from "@/theme/tokens";
 
 const MONTH_LABELS = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
+  "Jan",
+  "Fev",
+  "Mar",
+  "Abr",
   "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro"
+  "Jun",
+  "Jul",
+  "Ago",
+  "Set",
+  "Out",
+  "Nov",
+  "Dez"
 ];
 
-const EXPENSE_SCROLLBAR_CSS = `
-#launched-expenses-scroll::-webkit-scrollbar {
-  width: 5px;
+function formatMonthNavigationLabel(monthKey: string, active: boolean) {
+  const monthIndex = Number(monthKey.slice(5, 7)) - 1;
+  const label = MONTH_LABELS[monthIndex] ?? monthKey.slice(5, 7);
+
+  if (!active && label.length > 3) {
+    return label.slice(0, 3);
+  }
+
+  return label;
 }
 
-#launched-expenses-scroll::-webkit-scrollbar-track {
-  background: transparent;
+function formatMonthHeading(monthKey: string) {
+  const parsed = new Date(`${monthKey}-01T12:00:00`);
+  const label = parsed.toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric"
+  });
+
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-#launched-expenses-scroll::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.28);
-  border-radius: 999px;
+function getHealthLabel(status: "healthy" | "attention" | "critical") {
+  if (status === "healthy") {
+    return "Em dia";
+  }
+
+  if (status === "attention") {
+    return "Atenção";
+  }
+
+  return "Crítico";
 }
 
-#launched-expenses-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.42);
+type MetricCardProps = {
+  iconName: keyof typeof Ionicons.glyphMap;
+  iconTone: string;
+  label: string;
+  value: number;
+};
+
+function MetricCard({ iconName, iconTone, label, value }: MetricCardProps) {
+  const { theme, isDark } = useAppTheme();
+
+  return (
+    <View
+      style={[
+        styles.metricCard,
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.borderSoft,
+          shadowColor: isDark ? "#000000" : "#0F172A"
+        }
+      ]}
+    >
+      <View style={styles.metricHeader}>
+        <View style={[styles.metricIcon, { backgroundColor: `${iconTone}18` }]}>
+          <Ionicons color={iconTone} name={iconName} size={16} />
+        </View>
+        <Text style={[styles.metricLabel, { color: theme.colors.textMuted }]}>{label}</Text>
+      </View>
+      <Text numberOfLines={1} style={[styles.metricValue, { color: theme.colors.text }]}>
+        {formatCurrency(value)}
+      </Text>
+    </View>
+  );
 }
 
-#launched-expenses-scroll::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
-`;
+type HomeTransactionItemProps = {
+  amountColor: string;
+  iconName: keyof typeof Ionicons.glyphMap;
+  iconTone: string;
+  meta: string;
+  onPress: () => void;
+  title: string;
+  transaction: Transaction;
+};
 
-const expenseScrollWebStyle = {
-  scrollbarWidth: "thin",
-  scrollbarColor: "rgba(148, 163, 184, 0.28) transparent"
-} as const;
+function HomeTransactionItem({ amountColor, iconName, iconTone, meta, onPress, title, transaction }: HomeTransactionItemProps) {
+  const { theme } = useAppTheme();
 
-function formatCalendarPeriod(monthKey: string) {
-  const [year, month] = monthKey.split("-");
-  const monthIndex = Number(month) - 1;
-  return `${MONTH_LABELS[monthIndex] ?? month} ${year}`;
+  return (
+    <Pressable
+      accessibilityLabel={`Abrir ${title}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.transactionCard,
+        {
+          borderBottomColor: theme.colors.borderSoft,
+          opacity: pressed ? 0.84 : 1
+        }
+      ]}
+    >
+      <View style={styles.transactionLeft}>
+        <View style={[styles.transactionIcon, { backgroundColor: `${iconTone}18` }]}>
+          <Ionicons color={iconTone} name={iconName} size={15} />
+        </View>
+        <View style={styles.transactionText}>
+          <Text numberOfLines={1} style={[styles.transactionTitle, { color: theme.colors.text }]}>
+            {title}
+          </Text>
+          <Text numberOfLines={1} style={[styles.transactionMeta, { color: theme.colors.textMuted }]}>
+            {meta}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.transactionRight}>
+        <Text numberOfLines={1} style={[styles.transactionAmount, { color: amountColor }]}>
+          {transaction.type === "income" ? "+" : "-"} {formatCurrency(transaction.amount)}
+        </Text>
+        <View style={styles.transactionDateRow}>
+          <Text style={[styles.transactionMeta, { color: theme.colors.textMuted }]}>{formatShortDate(transaction.date)}</Text>
+          <Ionicons color={theme.colors.textMuted} name="chevron-forward" size={14} />
+        </View>
+      </View>
+    </Pressable>
+  );
 }
 
 export function HomeScreen() {
   const { isSyncing } = useFinanceRealtime();
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
+  const { isCompact } = useResponsiveLayout();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const goals = useFinanceStore((state) => state.goals);
   const transactions = useFinanceStore((state) => state.transactions);
-  const removeTransaction = useFinanceStore((state) => state.removeTransaction);
+  const activeMonthKey = useFinanceStore((state) => state.activeMonthKey);
+  const setActiveMonthKey = useFinanceStore((state) => state.setActiveMonthKey);
   const setEditingTransaction = useFinanceStore((state) => state.setEditingTransaction);
-  const updateTransactionLocal = useFinanceStore((state) => state.updateTransactionLocal);
-  const currentMonth = getMonthKey();
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const [calendarYear, setCalendarYear] = useState(Number(currentMonth.slice(0, 4)));
-  const dashboard = useMemo(() => buildDashboardSummary(transactions, goals, selectedMonth), [goals, selectedMonth, transactions]);
-  const insights = dashboard.insights ?? [];
-  const selectedYear = Number(selectedMonth.slice(0, 4));
-  const selectedMonthLabel = formatCalendarPeriod(selectedMonth);
-  const recurringTransactions = useMemo(
+  const [calendarYear, setCalendarYear] = useState(Number(activeMonthKey.slice(0, 4)));
+  const dashboard = useMemo(() => buildDashboardSummary(transactions, goals, activeMonthKey), [activeMonthKey, goals, transactions]);
+  const selectedYear = Number(activeMonthKey.slice(0, 4));
+  const selectedMonthLabel = formatMonthHeading(activeMonthKey);
+  const monthStrip = useMemo(() => [shiftMonthKey(activeMonthKey, -1), activeMonthKey, shiftMonthKey(activeMonthKey, 1)], [activeMonthKey]);
+  const upcomingTransactions = useMemo(
     () =>
       [...transactions]
-        .filter((transaction) => transaction.type === "expense" && transaction.isRecurring && transaction.date.startsWith(selectedMonth))
-        .sort((left, right) => right.date.localeCompare(left.date) || right.createdAt.localeCompare(left.createdAt)),
-    [selectedMonth, transactions]
+        .filter((transaction) => transaction.type === "expense" && !transaction.isPaid && transaction.date.startsWith(activeMonthKey))
+        .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt))
+        .slice(0, 3),
+    [activeMonthKey, transactions]
   );
-  const expenseTransactions = useMemo(
-    () =>
-      [...transactions]
-        .filter((transaction) => transaction.type === "expense" && !transaction.isRecurring && transaction.date.startsWith(selectedMonth))
-        .sort((left, right) => right.date.localeCompare(left.date) || right.createdAt.localeCompare(left.createdAt)),
-    [selectedMonth, transactions]
-  );
-
-  async function handleTogglePaid(transaction: Transaction) {
-    const nextPaidState = !transaction.isPaid;
-
-    try {
-      await firestoreService.updateTransaction(transaction.id, { isPaid: nextPaidState });
-      updateTransactionLocal(transaction.id, {
-        isPaid: nextPaidState,
-        updatedAt: new Date().toISOString()
-      });
-    } catch {
-      return;
-    }
-  }
-
-  async function handleDeleteTransaction(id: string) {
-    try {
-      await firestoreService.deleteTransaction(id);
-      removeTransaction(id);
-    } catch {
-      return;
-    }
-  }
-
-  function handleEditTransaction(transaction: Transaction) {
-    setEditingTransaction(transaction);
-    navigation.navigate("Add");
-  }
+  const latestTransactions = useMemo(() => dashboard.recentTransactions.slice(0, 4), [dashboard.recentTransactions]);
 
   function handleToggleCalendar() {
     if (!isCalendarOpen) {
@@ -138,212 +183,490 @@ export function HomeScreen() {
 
   function handleSelectMonth(monthIndex: number) {
     const nextMonth = `${calendarYear}-${`${monthIndex + 1}`.padStart(2, "0")}`;
-    setSelectedMonth(nextMonth);
+    setActiveMonthKey(nextMonth);
     setIsCalendarOpen(false);
   }
 
-  return (
-    <ScreenShell>
-      <SectionCard title="Calendario" subtitle="Abra o calendario para trocar o mes e o ano direto na tela inicial.">
-        <Pressable
-          accessibilityLabel={isCalendarOpen ? "Fechar calendario mensal" : "Abrir calendario mensal"}
-          onPress={handleToggleCalendar}
-          style={[styles.calendarTrigger, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft }]}
-        >
-          <View>
-            <Text style={[styles.calendarLabel, { color: theme.colors.textMuted }]}>Periodo selecionado</Text>
-            <Text style={[styles.calendarValue, { color: theme.colors.text }]}>{selectedMonthLabel}</Text>
-          </View>
-          <Text style={[styles.calendarAction, { color: theme.colors.primary }]}>{isCalendarOpen ? "Fechar" : "Abrir"}</Text>
-        </Pressable>
-        {isCalendarOpen ? (
-          <View style={[styles.calendarPanel, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft }]}>
-            <View style={styles.yearRow}>
-              <Pressable
-                accessibilityLabel="Ano anterior"
-                onPress={() => setCalendarYear((current) => current - 1)}
-                style={[styles.yearButton, { borderColor: theme.colors.borderSoft }]}
-              >
-                <Text style={{ color: theme.colors.text }}>Anterior</Text>
-              </Pressable>
-              <Text style={[styles.yearValue, { color: theme.colors.text }]}>{calendarYear}</Text>
-              <Pressable
-                accessibilityLabel="Ano seguinte"
-                onPress={() => setCalendarYear((current) => current + 1)}
-                style={[styles.yearButton, { borderColor: theme.colors.borderSoft }]}
-              >
-                <Text style={{ color: theme.colors.text }}>Proximo</Text>
-              </Pressable>
-            </View>
-            <View style={styles.calendarGrid}>
-              {MONTH_LABELS.map((monthLabel, monthIndex) => {
-                const monthKey = `${calendarYear}-${`${monthIndex + 1}`.padStart(2, "0")}`;
-                const isSelected = selectedMonth === monthKey;
+  function handleOpenTransaction(transaction: Transaction) {
+    setEditingTransaction(transaction);
+    navigation.navigate("Add");
+  }
 
-                return (
-                  <Pressable
-                    key={monthKey}
-                    accessibilityLabel={`Selecionar ${monthLabel} de ${calendarYear}`}
-                    onPress={() => handleSelectMonth(monthIndex)}
-                    style={[
-                      styles.monthTile,
-                      {
-                        backgroundColor: isSelected ? theme.colors.primary : theme.colors.background,
-                        borderColor: isSelected ? theme.colors.primary : theme.colors.borderSoft
-                      }
-                    ]}
-                  >
-                    <Text style={[styles.monthTileText, { color: isSelected ? "#FFFFFF" : theme.colors.text }]}>{monthLabel}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+  return (
+    <ScreenShell style={styles.screen}>
+      <View style={styles.topBar}>
+        <Pressable
+          accessibilityLabel="Abrir configurações"
+          onPress={() => navigation.navigate("Settings")}
+          style={[styles.topIconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft }]}
+        >
+          <Ionicons color={theme.colors.text} name="notifications-outline" size={18} />
+        </Pressable>
+        <View style={[styles.monthStrip, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft }]}>
+          {monthStrip.map((monthKey) => {
+            const isActive = monthKey === activeMonthKey;
+
+            return (
+              <Pressable
+                key={monthKey}
+                accessibilityLabel={`Selecionar ${formatMonthHeading(monthKey)}`}
+                onPress={() => setActiveMonthKey(monthKey)}
+                style={[styles.monthChip, isActive && { backgroundColor: `${theme.colors.primary}18` }]}
+              >
+                <Text
+                  style={[
+                    styles.monthChipLabel,
+                    {
+                      color: isActive ? theme.colors.primary : theme.colors.textMuted,
+                      fontWeight: isActive ? "800" : "600"
+                    }
+                  ]}
+                >
+                  {formatMonthNavigationLabel(monthKey, isActive)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable
+          accessibilityLabel={isCalendarOpen ? "Fechar calendário mensal" : "Abrir calendário mensal"}
+          onPress={handleToggleCalendar}
+          style={[styles.topIconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft }]}
+        >
+          <Ionicons color={theme.colors.text} name="calendar-outline" size={18} />
+        </Pressable>
+      </View>
+
+      {isCalendarOpen ? (
+        <View style={[styles.calendarPanel, { backgroundColor: theme.colors.card, borderColor: theme.colors.borderSoft }]}>
+          <View style={styles.calendarHeader}>
+            <Pressable
+              accessibilityLabel="Ano anterior"
+              onPress={() => setCalendarYear((current) => current - 1)}
+              style={[styles.calendarArrow, { borderColor: theme.colors.borderSoft }]}
+            >
+              <Ionicons color={theme.colors.text} name="chevron-back" size={16} />
+            </Pressable>
+            <Text style={[styles.calendarYear, { color: theme.colors.text }]}>{calendarYear}</Text>
+            <Pressable
+              accessibilityLabel="Ano seguinte"
+              onPress={() => setCalendarYear((current) => current + 1)}
+              style={[styles.calendarArrow, { borderColor: theme.colors.borderSoft }]}
+            >
+              <Ionicons color={theme.colors.text} name="chevron-forward" size={16} />
+            </Pressable>
           </View>
-        ) : null}
-      </SectionCard>
-      <SummaryHero
-        balance={dashboard.balance}
-        monthlyIncome={dashboard.monthlyIncome}
-        monthlyExpenses={dashboard.monthlyExpenses}
-        healthStatus={dashboard.healthStatus}
-      />
-      <SectionCard
-        title={`Gastos por categoria em ${selectedMonthLabel}`}
-        subtitle={isSyncing ? "Sincronizando em tempo real..." : "Atualização em tempo real via Firestore."}
+          <View style={styles.calendarGrid}>
+            {MONTH_LABELS.map((monthLabel, monthIndex) => {
+              const monthKey = `${calendarYear}-${`${monthIndex + 1}`.padStart(2, "0")}`;
+              const isSelected = activeMonthKey === monthKey;
+
+              return (
+                <Pressable
+                  key={monthKey}
+                  accessibilityLabel={`Selecionar ${monthLabel} de ${calendarYear}`}
+                  onPress={() => handleSelectMonth(monthIndex)}
+                  style={[
+                    styles.calendarMonth,
+                    {
+                      backgroundColor: isSelected ? theme.colors.primary : theme.colors.cardAlt,
+                      borderColor: isSelected ? theme.colors.primary : theme.colors.borderSoft
+                    }
+                  ]}
+                >
+                  <Text style={[styles.calendarMonthLabel, { color: isSelected ? palette.ink : theme.colors.text }]}>{monthLabel}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      <View
+        style={[
+          styles.heroCard,
+          isCompact && styles.heroCardCompact,
+          {
+            backgroundColor: theme.colors.primary,
+            shadowColor: theme.colors.primary
+          }
+        ]}
       >
-        <CategoryChart
-          data={dashboard.categoryBreakdown}
-          healthStatus={dashboard.healthStatus}
-          monthlyExpenses={dashboard.monthlyExpenses}
-          monthlyIncome={dashboard.monthlyIncome}
-        />
-      </SectionCard>
-      <SectionCard
-        title="Despesas recorrentes salvas"
-        subtitle={`Total recorrente em aberto em ${selectedMonthLabel}: ${formatCurrency(dashboard.recurringTotal)}. Só recorrências aparecem novamente nos meses seguintes.`}
+        <View style={styles.heroHeader}>
+          <View style={styles.heroTitleRow}>
+            <Text style={styles.heroCaption}>Saldo total</Text>
+            <Ionicons color={palette.ink} name="eye-outline" size={15} />
+          </View>
+          <Pressable onPress={() => navigation.navigate("History")} style={styles.heroAction}>
+            <Text style={styles.heroActionText}>Detalhes</Text>
+            <Ionicons color={palette.ink} name="chevron-forward" size={14} />
+          </Pressable>
+        </View>
+        <Text numberOfLines={1} style={[styles.heroBalance, isCompact && styles.heroBalanceCompact]}>
+          {formatCurrency(dashboard.balance)}
+        </Text>
+        <View style={styles.heroFooter}>
+          <Text style={styles.heroFooterText}>{isSyncing ? "Sincronizando agora" : "Atualizado há instantes"}</Text>
+          <View style={[styles.heroBadge, { backgroundColor: "rgba(5, 5, 5, 0.12)" }]}>
+            <Text style={styles.heroBadgeText}>{getHealthLabel(dashboard.healthStatus)}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={[styles.metricsRow, isCompact && styles.metricsRowCompact]}>
+        <MetricCard iconName="trending-up" iconTone={theme.colors.success} label="Ganhos" value={dashboard.monthlyIncome} />
+        <MetricCard iconName="trending-down" iconTone={palette.danger} label="Gastos" value={dashboard.monthlyExpenses} />
+      </View>
+
+      <View
+        style={[
+          styles.sectionSurface,
+          {
+            backgroundColor: theme.colors.card,
+            borderColor: theme.colors.borderSoft,
+            shadowColor: isDark ? "#000000" : "#0F172A"
+          }
+        ]}
       >
-        {recurringTransactions.length ? (
-          recurringTransactions.map((transaction) => (
-            <TransactionRow key={transaction.id} transaction={transaction} onTogglePaid={() => void handleTogglePaid(transaction)} />
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Próximos lançamentos</Text>
+            <Text style={[styles.sectionSubtitle, { color: theme.colors.textMuted }]}>{selectedMonthLabel}</Text>
+          </View>
+          <Pressable onPress={() => navigation.navigate("History")}>
+            <Text style={[styles.sectionAction, { color: theme.colors.primary }]}>Ver tudo</Text>
+          </Pressable>
+        </View>
+        {upcomingTransactions.length ? (
+          upcomingTransactions.map((transaction) => (
+            <HomeTransactionItem
+              key={transaction.id}
+              amountColor={palette.danger}
+              iconName={transaction.isRecurring ? "repeat" : "receipt-outline"}
+              iconTone={transaction.isRecurring ? theme.colors.primary : theme.colors.notification}
+              meta={`${transaction.categoryName} | ${transaction.isRecurring ? "Recorrente" : "Lançamento do mês"}`}
+              onPress={() => handleOpenTransaction(transaction)}
+              title={transaction.description}
+              transaction={transaction}
+            />
           ))
         ) : (
-          <Text>Nenhuma despesa recorrente ativa.</Text>
+          <Text style={[styles.emptyState, { color: theme.colors.textMuted }]}>Nenhuma conta pendente neste mês.</Text>
         )}
-      </SectionCard>
-      <SectionCard
-        title={`Contas de ${selectedMonthLabel}`}
-        subtitle="Cada mês mostra apenas os lançamentos comuns daquele período. As recorrências do mês ficam no card acima."
+      </View>
+
+      <View
+        style={[
+          styles.sectionSurface,
+          {
+            backgroundColor: theme.colors.card,
+            borderColor: theme.colors.borderSoft,
+            shadowColor: isDark ? "#000000" : "#0F172A"
+          }
+        ]}
       >
-        {expenseTransactions.length ? (
-          <>
-            {Platform.OS === "web" ? createElement("style", {}, EXPENSE_SCROLLBAR_CSS) : null}
-            <ScrollView
-              contentContainerStyle={styles.expenseScrollContent}
-              indicatorStyle="white"
-              nativeID="launched-expenses-scroll"
-              nestedScrollEnabled
-              showsVerticalScrollIndicator
-              style={[styles.expenseScroll, Platform.OS === "web" ? (expenseScrollWebStyle as any) : null]}
-              testID="launched-expenses-scroll"
-            >
-              {expenseTransactions.map((transaction) => (
-                <TransactionRow
-                  key={transaction.id}
-                  onDelete={() => void handleDeleteTransaction(transaction.id)}
-                  onEdit={() => handleEditTransaction(transaction)}
-                  transaction={transaction}
-                  onTogglePaid={() => void handleTogglePaid(transaction)}
-                />
-              ))}
-            </ScrollView>
-          </>
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Últimas transações</Text>
+            <Text style={[styles.sectionSubtitle, { color: theme.colors.textMuted }]}>Movimentos recentes de {selectedMonthLabel}</Text>
+          </View>
+          <Pressable onPress={() => navigation.navigate("History")}>
+            <Text style={[styles.sectionAction, { color: theme.colors.primary }]}>Histórico</Text>
+          </Pressable>
+        </View>
+        {latestTransactions.length ? (
+          latestTransactions.map((transaction) => (
+            <HomeTransactionItem
+              key={transaction.id}
+              amountColor={transaction.type === "income" ? theme.colors.success : transaction.isPaid ? theme.colors.success : theme.colors.text}
+              iconName={transaction.type === "income" ? "arrow-up-outline" : "arrow-down-outline"}
+              iconTone={transaction.type === "income" ? theme.colors.success : theme.colors.notification}
+              meta={`${transaction.categoryName} | ${transaction.type === "income" ? "Receita" : transaction.isPaid ? "Pago" : "Despesa"}`}
+              onPress={() => handleOpenTransaction(transaction)}
+              title={transaction.description}
+              transaction={transaction}
+            />
+          ))
         ) : (
-          <Text>Sem despesas cadastradas.</Text>
+          <Text style={[styles.emptyState, { color: theme.colors.textMuted }]}>Sem transações cadastradas neste mês.</Text>
         )}
-      </SectionCard>
-      <SectionCard title={`Insights de ${selectedMonthLabel}`} subtitle="Leituras rápidas do seu comportamento financeiro no mês selecionado.">
-        {insights.map((insight) => (
-          <Text key={insight}>{insight}</Text>
-        ))}
-      </SectionCard>
+      </View>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  calendarTrigger: {
-    width: "100%",
-    maxWidth: 420,
-    alignSelf: "center",
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.sm,
-    flexDirection: "row",
+  screen: {
+    gap: spacing.md
+  },
+  topBar: {
     alignItems: "center",
-    justifyContent: "space-between"
+    flexDirection: "row",
+    gap: spacing.sm
   },
-  calendarLabel: {
-    fontSize: 11
+  topIconButton: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    width: 42
   },
-  calendarValue: {
-    fontSize: 16,
-    fontWeight: "700"
+  monthStrip: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 6,
+    paddingVertical: 4
   },
-  calendarAction: {
-    fontSize: 12,
-    fontWeight: "700"
+  monthChip: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    minWidth: 68,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 1
+  },
+  monthChipLabel: {
+    fontSize: 13
   },
   calendarPanel: {
-    width: "100%",
-    maxWidth: 420,
-    alignSelf: "center",
-    marginTop: spacing.sm,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderRadius: 16,
-    padding: spacing.sm + 2,
-    gap: spacing.sm
+    gap: spacing.sm,
+    padding: spacing.md
   },
-  yearRow: {
-    flexDirection: "row",
+  calendarHeader: {
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm
+    flexDirection: "row",
+    justifyContent: "space-between"
   },
-  yearButton: {
+  calendarArrow: {
+    alignItems: "center",
+    borderRadius: radii.pill,
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.xs
+    height: 34,
+    justifyContent: "center",
+    width: 34
   },
-  yearValue: {
-    fontSize: 16,
-    fontWeight: "700"
+  calendarYear: {
+    fontSize: 17,
+    fontWeight: "800"
   },
   calendarGrid: {
+    columnGap: spacing.xs + 2,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    rowGap: spacing.xs + 2,
-    columnGap: spacing.xs + 2
+    rowGap: spacing.xs + 2
   },
-  monthTile: {
-    flexBasis: "31%",
+  calendarMonth: {
+    alignItems: "center",
+    borderRadius: radii.md,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs + 2,
-    alignItems: "center"
+    flexBasis: "31%",
+    paddingVertical: spacing.sm
   },
-  monthTileText: {
+  calendarMonthLabel: {
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  heroCard: {
+    borderRadius: 30,
+    gap: spacing.xs,
+    minHeight: 146,
+    padding: spacing.lg,
+    shadowOffset: {
+      width: 0,
+      height: 16
+    },
+    shadowOpacity: 0.26,
+    shadowRadius: 26
+  },
+  heroCardCompact: {
+    borderRadius: 24,
+    padding: spacing.md
+  },
+  heroHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.sm
+  },
+  heroTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6
+  },
+  heroCaption: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  heroAction: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2
+  },
+  heroActionText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  heroBalance: {
+    color: palette.ink,
+    fontSize: 32,
+    fontWeight: "900",
+    letterSpacing: -0.8
+  },
+  heroBalanceCompact: {
+    fontSize: 28
+  },
+  heroFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.xs
+  },
+  heroFooterText: {
+    color: "rgba(5, 5, 5, 0.72)",
     fontSize: 11,
     fontWeight: "600"
   },
-  expenseScroll: {
-    maxHeight: 340,
-    paddingRight: 2
+  heroBadge: {
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6
   },
-  expenseScrollContent: {
-    paddingRight: 2
+  heroBadgeText: {
+    color: palette.ink,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  metricsRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  metricsRowCompact: {
+    flexDirection: "column"
+  },
+  metricCard: {
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    elevation: 2,
+    flex: 1,
+    gap: spacing.xs,
+    minHeight: 108,
+    padding: spacing.md,
+    shadowOffset: {
+      width: 0,
+      height: 8
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 18
+  },
+  metricHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs
+  },
+  metricIcon: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    height: 30,
+    justifyContent: "center",
+    width: 30
+  },
+  metricLabel: {
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  metricValue: {
+    fontSize: 22,
+    fontWeight: "800"
+  },
+  sectionSurface: {
+    borderRadius: 28,
+    borderWidth: 1,
+    elevation: 2,
+    gap: spacing.xs,
+    padding: spacing.md,
+    shadowOffset: {
+      width: 0,
+      height: 8
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 18
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
+    gap: spacing.sm
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800"
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    marginTop: 2
+  },
+  sectionAction: {
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  transactionCard: {
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: spacing.sm
+  },
+  transactionLeft: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  transactionIcon: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  transactionText: {
+    flex: 1,
+    gap: 2
+  },
+  transactionTitle: {
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  transactionMeta: {
+    fontSize: 11
+  },
+  transactionRight: {
+    alignItems: "flex-end",
+    gap: 3,
+    marginLeft: spacing.sm
+  },
+  transactionAmount: {
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  transactionDateRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2
+  },
+  emptyState: {
+    fontSize: 13,
+    lineHeight: 19,
+    paddingVertical: spacing.xs
   }
 });

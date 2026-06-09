@@ -8,6 +8,7 @@ import { useAppTheme } from "@/context/ThemeContext";
 import { authService } from "@/services/authService";
 import { biometricAuthService, BiometricStatus } from "@/services/biometricAuthService";
 import { exportService } from "@/services/exportService";
+import { savedAccessService } from "@/services/savedAccessService";
 import { useFinanceStore } from "@/store/useFinanceStore";
 import { getMonthKey } from "@/utils/format";
 import { spacing } from "@/theme/tokens";
@@ -22,6 +23,7 @@ export function SettingsScreen() {
     isEnabled: false,
     label: "biometria"
   });
+  const [saveAccessEnabled, setSaveAccessEnabled] = useState(true);
   const currentMonth = getMonthKey();
   const monthlyTransactions = useMemo(
     () => transactions.filter((transaction) => transaction.date.startsWith(currentMonth)),
@@ -31,17 +33,21 @@ export function SettingsScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadBiometricStatus() {
-      const status = await biometricAuthService.getStatus();
+    async function loadSecurityPreferences() {
+      const [status, saveAccessEnabledValue] = await Promise.all([
+        biometricAuthService.getStatus(),
+        savedAccessService.isEnabled()
+      ]);
 
       if (!isMounted) {
         return;
       }
 
       setBiometricStatus(status);
+      setSaveAccessEnabled(saveAccessEnabledValue);
     }
 
-    void loadBiometricStatus();
+    void loadSecurityPreferences();
 
     return () => {
       isMounted = false;
@@ -64,8 +70,18 @@ export function SettingsScreen() {
     }));
   }
 
+  async function handleSaveAccessChange(nextValue: boolean) {
+    setSaveAccessEnabled(nextValue);
+    await savedAccessService.setEnabled(nextValue);
+  }
+
   async function handleThemeChange(nextValue: boolean) {
     await setThemeMode(nextValue ? "dark" : "light");
+  }
+
+  async function handleLogout() {
+    await savedAccessService.clearSavedAccess().catch(() => undefined);
+    await authService.logout();
   }
 
   return (
@@ -79,8 +95,22 @@ export function SettingsScreen() {
           <SectionCard title="Preferências" subtitle="Troque entre tema claro e escuro sem reiniciar o app.">
             <View style={styles.switchRow}>
               <Text style={{ color: theme.colors.text }}>Modo escuro</Text>
-              <Switch value={isDark} onValueChange={(nextValue) => void handleThemeChange(nextValue)} accessibilityRole="switch" />
+              <Switch value={isDark} onValueChange={(nextValue) => void handleThemeChange(nextValue)} accessibilityRole="switch" accessibilityLabel="Modo escuro" />
             </View>
+          </SectionCard>
+          <SectionCard title="Salvar acesso" subtitle="Mantenha esta conta conectada neste aparelho e sincronizada com o mesmo login em outros celulares.">
+            <View style={styles.switchRow}>
+              <Text style={{ color: theme.colors.text }}>Manter acesso salvo</Text>
+              <Switch
+                value={saveAccessEnabled}
+                onValueChange={(nextValue) => void handleSaveAccessChange(nextValue)}
+                accessibilityRole="switch"
+                accessibilityLabel="Salvar acesso"
+              />
+            </View>
+            <Text style={{ color: theme.colors.textMuted }}>
+              Entrando com a mesma conta em outro aparelho, todos passam a ver as mesmas despesas.
+            </Text>
           </SectionCard>
           <SectionCard title="Segurança" subtitle="Use biometria para entrar mais rápido neste aparelho.">
             <Text style={{ color: theme.colors.text }}>
@@ -107,7 +137,7 @@ export function SettingsScreen() {
         </ScrollView>
 
         <View style={[styles.footer, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.borderSoft, paddingBottom: Math.max(insets.bottom, spacing.xs) }]}>
-          <Pressable accessibilityRole="button" onPress={() => authService.logout()} style={[styles.logoutButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.warning }]}>
+          <Pressable accessibilityRole="button" onPress={() => void handleLogout()} style={[styles.logoutButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.warning }]}>
             <Text style={[styles.logoutLabel, { color: theme.colors.warning }]}>Sair</Text>
           </Pressable>
         </View>

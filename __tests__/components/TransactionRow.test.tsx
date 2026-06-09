@@ -10,7 +10,7 @@ jest.mock("@expo/vector-icons", () => ({
 }));
 
 describe("TransactionRow", () => {
-  it("shows small edit/delete actions and triggers the related callbacks", () => {
+  it("shows clearer edit/delete action buttons and triggers the related callbacks", () => {
     const onEdit = jest.fn();
     const onDelete = jest.fn();
     const onTogglePaid = jest.fn();
@@ -37,8 +37,10 @@ describe("TransactionRow", () => {
       />
     );
 
-    expect(screen.getByText("trash-outline")).toBeTruthy();
-    expect(screen.getByText("create-outline")).toBeTruthy();
+    expect(screen.getByText("trash")).toBeTruthy();
+    expect(screen.getByText("pencil")).toBeTruthy();
+    expect(screen.getByText("Editar")).toBeTruthy();
+    expect(screen.getByText("Excluir")).toBeTruthy();
     expect(screen.getByText("Moradia")).toBeTruthy();
 
     fireEvent.press(screen.getByLabelText("Marcar Internet como paga"));

@@ -80,10 +80,10 @@ describe("recurring utils", () => {
         },
         userId: "user-1"
       }).map((item) => item.date)
-    ).toEqual(["2026-01-01", "2027-01-01"]);
+    ).toEqual(["2026-01-01"]);
   });
 
-  it("extends open-ended recurring installments into the next year automatically", () => {
+  it("limits open-ended recurring installments to a single year", () => {
     const installments = buildRecurringInstallments({
       amount: 120,
       categoryId: "housing",
@@ -100,9 +100,9 @@ describe("recurring utils", () => {
     });
 
     expect(resolveRecurringEndDate("2026-03-10")).toBeUndefined();
-    expect(resolveRecurringGenerationHorizon("2026-03-10", undefined, new Date("2026-03-15T00:00:00.000Z"))).toBe("2027-12-31");
+    expect(resolveRecurringGenerationHorizon("2026-03-10", undefined, new Date("2026-03-15T00:00:00.000Z"))).toBe("2026-12-31");
     expect(installments[0].date).toBe("2026-04-10");
-    expect(installments.at(-1)?.date).toBe("2027-12-10");
+    expect(installments.at(-1)?.date).toBe("2026-12-10");
     expect(installments.every((transaction) => transaction.recurringEndDate === undefined)).toBe(true);
   });
 

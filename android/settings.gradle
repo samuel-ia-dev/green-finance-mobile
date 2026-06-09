@@ -1,22 +1,68 @@
 pluginManagement {
-    includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().toString())
+  def isWindows = File.separatorChar == '\\'
+  def nodeExecutable = System.getenv("NODE_BINARY")?.trim()
+  if (!nodeExecutable) {
+    def candidates = []
+    def programFiles = System.getenv("ProgramFiles")
+    if (programFiles) {
+      candidates << new File(programFiles, "nodejs/node.exe")
+    }
+    def programFilesX86 = System.getenv("ProgramFiles(x86)")
+    if (programFilesX86) {
+      candidates << new File(programFilesX86, "nodejs/node.exe")
+    }
+    candidates << new File("C:/Program Files/nodejs/node.exe")
+    candidates << new File("C:/Progra~1/nodejs/node.exe")
+
+    def nodeExe = candidates.find { it.exists() }
+    nodeExecutable = nodeExe ? nodeExe.absolutePath : "node"
+  }
+
+  def nodeCommand = (isWindows && nodeExecutable == "node")
+    ? [(System.getenv("ComSpec") ?: "cmd"), "/c", "node"]
+    : [nodeExecutable]
+
+  includeBuild(new File((nodeCommand + ["--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"]).execute(null, rootDir).text.trim()).getParentFile().toString())
 }
+
 plugins { id("com.facebook.react.settings") }
+
+def isWindows = File.separatorChar == '\\'
+def nodeExecutable = System.getenv("NODE_BINARY")?.trim()
+if (!nodeExecutable) {
+  def candidates = []
+  def programFiles = System.getenv("ProgramFiles")
+  if (programFiles) {
+    candidates << new File(programFiles, "nodejs/node.exe")
+  }
+  def programFilesX86 = System.getenv("ProgramFiles(x86)")
+  if (programFilesX86) {
+    candidates << new File(programFilesX86, "nodejs/node.exe")
+  }
+  candidates << new File("C:/Program Files/nodejs/node.exe")
+  candidates << new File("C:/Progra~1/nodejs/node.exe")
+
+  def nodeExe = candidates.find { it.exists() }
+  nodeExecutable = nodeExe ? nodeExe.absolutePath : "node"
+}
+
+def nodeCommand = (isWindows && nodeExecutable == "node")
+  ? [(System.getenv("ComSpec") ?: "cmd"), "/c", "node"]
+  : [nodeExecutable]
 
 extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
   if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
     ex.autolinkLibrariesFromCommand()
   } else {
-    def command = [
-      'node',
-      '--no-warnings',
+    def command = (nodeCommand + [
+      "--no-warnings",
       '--eval',
       'require(require.resolve(\'expo-modules-autolinking\', { paths: [require.resolve(\'expo/package.json\')] }))(process.argv.slice(1))',
       'react-native-config',
       '--json',
       '--platform',
       'android'
-    ].toList()
+    ]).toList()
     ex.autolinkLibrariesFromCommand(command)
   }
 }
@@ -26,13 +72,13 @@ rootProject.name = 'Green Finance'
 dependencyResolutionManagement {
   versionCatalogs {
     reactAndroidLibs {
-      from(files(new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim(), "../gradle/libs.versions.toml")))
+      from(files(new File((nodeCommand + ["--print", "require.resolve('react-native/package.json')"]).execute(null, rootDir).text.trim(), "../gradle/libs.versions.toml")))
     }
   }
 }
 
-apply from: new File(["node", "--print", "require.resolve('expo/package.json')"].execute(null, rootDir).text.trim(), "../scripts/autolinking.gradle");
+apply from: new File((nodeCommand + ["--print", "require.resolve('expo/package.json')"]).execute(null, rootDir).text.trim(), "../scripts/autolinking.gradle");
 useExpoModules()
 
 include ':app'
-includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile())
+includeBuild(new File((nodeCommand + ["--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"]).execute(null, rootDir).text.trim()).getParentFile())

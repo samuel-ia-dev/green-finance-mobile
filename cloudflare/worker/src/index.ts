@@ -35,6 +35,7 @@ type Env = {
 
 type Session = {
   email: string;
+  token: string;
   userId: string;
 };
 
@@ -44,6 +45,7 @@ const DEFAULT_SETTINGS = {
 } as const;
 
 const PASSWORD_HASH_ITERATIONS = 10_000;
+const CANONICAL_APP_HOSTNAME = "green-finance-backend-pages.pages.dev";
 const encoder = new TextEncoder();
 
 function jsonResponse(status: number, payload: unknown) {
@@ -72,6 +74,16 @@ function corsHeaders(headers?: HeadersInit) {
     "Access-Control-Allow-Origin": "*",
     ...headers
   };
+}
+
+function getCanonicalAppRedirect(url: URL) {
+  const hostname = url.hostname.trim().toLowerCase();
+
+  if (hostname === CANONICAL_APP_HOSTNAME || !hostname.endsWith(`.${CANONICAL_APP_HOSTNAME}`)) {
+    return null;
+  }
+
+  return `https://${CANONICAL_APP_HOSTNAME}${url.pathname}${url.search}`;
 }
 
 function buildAuthError(status: number, error: string) {
@@ -360,6 +372,29 @@ async function handleLogin(request: Request, env: Env) {
   });
 }
 
+async function handleUpdatePassword(request: Request, env: Env, session: Session) {
+  const body = await parseJsonBody(request);
+  const password = String(body.password ?? "").trim();
+
+  if (!password) {
+    return buildAuthError(400, "missing-credentials");
+  }
+
+  if (password.length < 6) {
+    return buildAuthError(400, "weak-password");
+  }
+
+  const salt = createRandomHex(16);
+  const passwordHash = await derivePasswordHash(password, salt);
+
+  await env.DB.batch([
+    env.DB.prepare("UPDATE accounts SET password_salt = ?, password_hash = ? WHERE uid = ?").bind(salt, passwordHash, session.userId),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND token != ?").bind(session.userId, session.token)
+  ]);
+
+  return emptyResponse(204);
+}
+
 async function serveApk(request: Request, env: Env) {
   if (!env.APK_BUCKET) {
     return request.method === "HEAD"
@@ -396,9 +431,14 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(request.url);
+      const canonicalRedirectUrl = getCanonicalAppRedirect(url);
 
       if (request.method === "OPTIONS") {
         return emptyResponse(204);
+      }
+
+      if (canonicalRedirectUrl && url.pathname !== "/app-release.apk" && !url.pathname.startsWith("/api")) {
+        return Response.redirect(canonicalRedirectUrl, 308);
       }
 
       if (!url.pathname.startsWith("/api") && url.pathname !== "/app-release.apk") {
@@ -445,6 +485,10 @@ export default {
         const token = getBearerToken(request)!;
         await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
         return emptyResponse(204);
+      }
+
+      if (url.pathname === "/api/auth/password" && request.method === "PUT") {
+        return handleUpdatePassword(request, env, session);
       }
 
       if (url.pathname === "/api/bootstrap" && request.method === "GET") {

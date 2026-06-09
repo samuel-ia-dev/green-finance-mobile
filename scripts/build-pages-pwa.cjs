@@ -50,8 +50,9 @@ function findWebIcon() {
 }
 
 function enhanceIndexHtml(iconPath) {
-  const indexPath = path.join(pagesDir, "index.html");
-  const rawHtml = fs.readFileSync(indexPath, "utf8");
+  const sourceIndexPath = path.join(distDir, "index.html");
+  const targetIndexPath = path.join(pagesDir, "index.html");
+  const rawHtml = fs.readFileSync(sourceIndexPath, "utf8");
 
   const headInjection = `
     <meta name="theme-color" content="#0B1020" />
@@ -174,7 +175,7 @@ function enhanceIndexHtml(iconPath) {
     .replace("</head>", `${headInjection}\n</head>`)
     .replace("</body>", `${bodyInjection}\n</body>`);
 
-  fs.writeFileSync(indexPath, nextHtml);
+  fs.writeFileSync(targetIndexPath, nextHtml);
 }
 
 function writeManifest(iconPath) {

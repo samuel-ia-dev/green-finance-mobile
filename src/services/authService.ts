@@ -8,6 +8,7 @@ import {
 import { cacheService } from "@/services/cacheService";
 import { auth } from "@/services/firebase";
 import { isRemoteBackendConfigured, remoteBackendService } from "@/services/remoteBackendService";
+import { sharedAccessService } from "@/services/sharedAccessService";
 import { AuthUser } from "@/types/finance";
 
 const LOCAL_ACCOUNTS_KEY = "green-finance.local-accounts";
@@ -65,6 +66,18 @@ export function mapAuthError(error: unknown) {
   }
   if (message.includes("remote-password-reset-not-supported")) {
     return "Recuperação de senha não está disponível nesta versão do app.";
+  }
+  if (message.includes("password-reset-requires-biometric")) {
+    return "Ative a digital neste aparelho para redefinir a senha pelo app.";
+  }
+  if (message.includes("password-reset-email-mismatch")) {
+    return "Use o mesmo email configurado para a digital neste aparelho.";
+  }
+  if (message.includes("password-change-not-supported")) {
+    return "Não foi possível redefinir a senha nesta versão do app.";
+  }
+  if (message.includes("password-confirmation-mismatch")) {
+    return "Digite a mesma senha nos dois campos.";
   }
   return "Não foi possível concluir a autenticação.";
 }
@@ -125,11 +138,60 @@ function buildLocalUid(email: string) {
 }
 
 export const authService = {
+  async resumeSession() {
+    if (!auth && isRemoteBackendConfigured()) {
+      try {
+        const user = await remoteBackendService.restoreSession();
+        emitLocalUser(user);
+        return user;
+      } catch {
+        await remoteBackendService.logout().catch(() => undefined);
+        emitLocalUser(null);
+        throw createAuthError("session-expired");
+      }
+    }
+
+    if (!auth) {
+      emitLocalUser(null);
+      return null;
+    }
+
+    const currentUser = toAuthUser(auth.currentUser);
+    emitLocalUser(currentUser);
+    return currentUser;
+  },
+
   async login(email: string, password: string) {
     const { normalizedEmail, normalizedPassword } = validateCredentials(email, password, "login");
 
     if (!auth && isRemoteBackendConfigured()) {
-      const user = await remoteBackendService.login(normalizedEmail, normalizedPassword);
+      let user: AuthUser;
+
+      try {
+        user = await remoteBackendService.login(normalizedEmail, normalizedPassword);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const localAccounts = await getLocalAccounts();
+        const localAccount = localAccounts[normalizedEmail];
+
+        if (!message.includes("invalid-credential") || !localAccount || localAccount.password !== normalizedPassword) {
+          throw error;
+        }
+
+        try {
+          user = await remoteBackendService.register(normalizedEmail, normalizedPassword);
+        } catch (registerError) {
+          const registerMessage = registerError instanceof Error ? registerError.message : String(registerError);
+
+          if (registerMessage.includes("email-already-in-use")) {
+            throw error;
+          }
+
+          throw registerError;
+        }
+      }
+
+      await sharedAccessService.migrateLocalDataToSharedAccount(user, normalizedEmail).catch(() => undefined);
       emitLocalUser(user);
       return user;
     }
@@ -160,6 +222,7 @@ export const authService = {
 
     if (!auth && isRemoteBackendConfigured()) {
       const user = await remoteBackendService.register(normalizedEmail, normalizedPassword);
+      await sharedAccessService.migrateLocalDataToSharedAccount(user, normalizedEmail).catch(() => undefined);
       emitLocalUser(user);
       return user;
     }
@@ -201,6 +264,58 @@ export const authService = {
     }
 
     await sendPasswordResetEmail(auth, email);
+  },
+
+  async updatePassword(password: string) {
+    const normalizedPassword = password.trim();
+
+    if (!normalizedPassword) {
+      throw createAuthError("missing-credentials");
+    }
+
+    if (normalizedPassword.length < 6) {
+      throw createAuthError("weak-password");
+    }
+
+    if (!auth && isRemoteBackendConfigured()) {
+      if (!localCurrentUser?.uid) {
+        throw createAuthError("session-expired");
+      }
+
+      await remoteBackendService.updatePassword(normalizedPassword);
+      return localCurrentUser;
+    }
+
+    if (!auth) {
+      const currentEmail = normalizeEmail(localCurrentUser?.email ?? "");
+
+      if (!currentEmail) {
+        throw createAuthError("session-expired");
+      }
+
+      const localAccounts = await getLocalAccounts();
+      const account = localAccounts[currentEmail];
+
+      if (!account) {
+        throw createAuthError("local-account-not-found");
+      }
+
+      const nextAccount: LocalAccount = {
+        ...account,
+        password: normalizedPassword
+      };
+
+      await saveLocalAccounts({
+        ...localAccounts,
+        [currentEmail]: nextAccount
+      });
+
+      const localUser = buildLocalUser(nextAccount.uid, nextAccount.email);
+      emitLocalUser(localUser);
+      return localUser;
+    }
+
+    throw createAuthError("password-change-not-supported");
   },
 
   async logout() {

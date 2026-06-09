@@ -22,8 +22,8 @@ EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 EXPO_PUBLIC_FIREBASE_APP_ID=
 ```
 
-Sem essas variáveis, o app abre em modo demo local com dados persistidos em `AsyncStorage`.
-Quando o Firebase está configurado, o fluxo real de Auth + Firestore é usado automaticamente.
+Sem as chaves do Firebase, o app usa por padrão o backend compartilhado em `https://green-finance-backend-pages.pages.dev/api`, permitindo que a mesma conta veja os mesmos dados em aparelhos diferentes.
+Quando o Firebase está configurado, o fluxo real de Auth + Firestore continua sendo usado automaticamente.
 
 ## Execução
 

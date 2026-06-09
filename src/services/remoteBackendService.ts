@@ -7,6 +7,7 @@ type RemoteSession = {
 };
 
 const REMOTE_SESSION_KEY = "green-finance.remote-session";
+const DEFAULT_REMOTE_API_BASE_URL = "https://green-finance-backend-pages.pages.dev/api";
 const inlineRemoteApiBaseUrl = process.env.EXPO_PUBLIC_REMOTE_API_BASE_URL;
 
 function getGlobalRemoteApiBaseUrlOverride() {
@@ -26,6 +27,18 @@ function buildAuthError(code: string) {
   return new Error(`auth/${code}`);
 }
 
+export function isRemoteNetworkError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return (
+    error instanceof TypeError ||
+    message.includes("Network request failed") ||
+    message.includes("Failed to fetch") ||
+    message.includes("fetch failed") ||
+    message.includes("Load failed")
+  );
+}
+
 function getRemoteApiBaseUrl() {
   const globalOverride = getGlobalRemoteApiBaseUrlOverride();
 
@@ -40,7 +53,13 @@ function getRemoteApiBaseUrl() {
     return runtimeBaseUrl;
   }
 
-  return inlineRemoteApiBaseUrl?.trim().replace(/\/+$/, "") || "";
+  const inlineBaseUrl = inlineRemoteApiBaseUrl?.trim().replace(/\/+$/, "");
+
+  if (inlineBaseUrl) {
+    return inlineBaseUrl;
+  }
+
+  return DEFAULT_REMOTE_API_BASE_URL;
 }
 
 function ensureRemoteBackendConfigured() {
@@ -138,6 +157,11 @@ export const remoteBackendService = {
     return isRemoteBackendConfigured();
   },
 
+  async hasSavedSession() {
+    const session = await getRemoteSession();
+    return Boolean(session?.token);
+  },
+
   async restoreSession() {
     const session = await getRemoteSession();
 
@@ -145,13 +169,21 @@ export const remoteBackendService = {
       return null;
     }
 
-    const payload = await requestRemote<{ user: AuthUser }>("/auth/session");
-    const nextSession = {
-      token: session.token,
-      user: payload.user
-    };
-    await setRemoteSession(nextSession);
-    return nextSession.user;
+    try {
+      const payload = await requestRemote<{ user: AuthUser }>("/auth/session");
+      const nextSession = {
+        token: session.token,
+        user: payload.user
+      };
+      await setRemoteSession(nextSession);
+      return nextSession.user;
+    } catch (error) {
+      if (isRemoteNetworkError(error)) {
+        return session.user;
+      }
+
+      throw error;
+    }
   },
 
   async login(email: string, password: string) {
@@ -192,6 +224,15 @@ export const remoteBackendService = {
     }
 
     await setRemoteSession(null);
+  },
+
+  async updatePassword(password: string) {
+    await requestRemote("/auth/password", {
+      method: "PUT",
+      body: {
+        password
+      }
+    });
   },
 
   async getFinanceBootstrap() {

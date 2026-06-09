@@ -65,7 +65,7 @@ export function SummaryHero({ balance, monthlyIncome, monthlyExpenses, healthSta
           <Text style={styles.stat}>{formatCurrency(monthlyExpenses)}</Text>
         </View>
       </View>
-      <View style={[styles.healthCard, { backgroundColor: "rgba(11, 16, 32, 0.24)", borderColor: "rgba(255, 255, 255, 0.12)" }]}>
+      <View style={[styles.healthCard, { backgroundColor: "rgba(8, 23, 16, 0.36)", borderColor: "rgba(183, 245, 59, 0.14)" }]}>
         <View style={[styles.healthHeader, isCompact && styles.healthHeaderCompact]}>
           <Text style={styles.healthLabel}>Saúde financeira</Text>
           <View style={[styles.healthBadge, { borderColor: health.accentColor, backgroundColor: `${health.accentColor}22` }]}>
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs
   },
   caption: {
-    color: "#E2E8F0",
+    color: "#D7E8DD",
     fontSize: 12
   },
   balance: {
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     flexDirection: "column"
   },
   healthLabel: {
-    color: "#E2E8F0",
+    color: "#D7E8DD",
     fontSize: 12,
     fontWeight: "600"
   },
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs
   },
   healthMeta: {
-    color: "#D1FAE5",
+    color: "#CDE7D8",
     fontSize: 11,
     lineHeight: 16
   }

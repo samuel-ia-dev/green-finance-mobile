@@ -6,6 +6,10 @@ const mockUpdateTransactionLocal = jest.fn();
 const mockRemoveTransaction = jest.fn();
 const mockSetEditingTransaction = jest.fn();
 const mockNavigate = jest.fn();
+let mockActiveMonthKey = "2026-03";
+const mockSetActiveMonthKey = jest.fn((monthKey: string) => {
+  mockActiveMonthKey = monthKey;
+});
 
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
@@ -123,6 +127,8 @@ jest.mock("@/store/useFinanceStore", () => ({
         removeTransaction: mockRemoveTransaction,
         setEditingTransaction: mockSetEditingTransaction,
         updateTransactionLocal: mockUpdateTransactionLocal,
+        activeMonthKey: mockActiveMonthKey,
+        setActiveMonthKey: mockSetActiveMonthKey,
         dashboard: {
           balance: 4680,
           monthlyIncome: 5000,
@@ -175,6 +181,7 @@ jest.mock("@/store/useFinanceStore", () => ({
 describe("HomeScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockActiveMonthKey = "2026-03";
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     (firestoreService.deleteTransaction as jest.Mock).mockResolvedValue(undefined);
@@ -210,6 +217,8 @@ describe("HomeScreen", () => {
     expect(screen.queryByText("Pagamento")).toBeNull();
     expect(screen.getAllByLabelText("Marcar Internet como paga").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Marcar Mercado como paga")).toBeTruthy();
+    expect(screen.getByLabelText("Editar Internet")).toBeTruthy();
+    expect(screen.getByLabelText("Excluir Internet")).toBeTruthy();
     expect(screen.getByLabelText("Editar Mercado")).toBeTruthy();
     expect(screen.getByLabelText("Excluir Mercado")).toBeTruthy();
   });

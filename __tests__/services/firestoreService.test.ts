@@ -45,6 +45,36 @@ function loadLocalFirestoreService(initialState?: FinanceHydrationPayload) {
   };
 }
 
+function loadRemoteFirestoreService(initialCache: Record<string, unknown> = {}) {
+  jest.resetModules();
+  const cache = new Map<string, unknown>(Object.entries(initialCache));
+
+  jest.doMock("@/services/firebase", () => ({
+    db: null
+  }));
+  jest.doMock("@/services/cacheService", () => ({
+    cacheService: {
+      getItem: jest.fn(async (key: string, fallback: unknown) => (cache.has(key) ? cache.get(key) : fallback)),
+      setItem: jest.fn(async (key: string, value: unknown) => {
+        cache.set(key, value);
+      }),
+      removeItem: jest.fn(async (key: string) => {
+        cache.delete(key);
+      })
+    }
+  }));
+
+  let isolated: typeof import("@/services/firestoreService");
+  jest.isolateModules(() => {
+    isolated = require("@/services/firestoreService");
+  });
+
+  return {
+    cache,
+    firestoreService: isolated!.firestoreService
+  };
+}
+
 describe("firestoreService", () => {
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -81,7 +111,7 @@ describe("firestoreService", () => {
     expect(batch.set).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        date: "2027-12-10",
+        date: "2026-12-10",
         recurringEndDate: undefined
       })
     );
@@ -372,6 +402,144 @@ describe("firestoreService", () => {
     ]);
 
     unsubscribe();
+  });
+
+  it("hydrates remote subscriptions from the cached state while offline", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+    (global.fetch as jest.Mock).mockRejectedValue(new TypeError("Network request failed"));
+
+    const cachedState: FinanceHydrationPayload = {
+      transactions: [
+        {
+          id: "tx-offline-1",
+          userId: "remote-user",
+          type: "expense",
+          amount: 120,
+          categoryId: "housing",
+          categoryName: "Moradia",
+          description: "Conta offline",
+          date: "2026-03-10",
+          isRecurring: false,
+          createdAt: "2026-03-10T00:00:00.000Z",
+          updatedAt: "2026-03-10T00:00:00.000Z"
+        }
+      ],
+      categories: [],
+      goals: [],
+      settings: {
+        theme: "dark",
+        currency: "BRL",
+        email: "remote@example.com"
+      }
+    };
+
+    const { firestoreService: remoteFirestoreService } = loadRemoteFirestoreService({
+      "green-finance.remote-session": {
+        token: "session-remote",
+        user: {
+          uid: "remote-user",
+          email: "remote@example.com"
+        }
+      },
+      "green-finance.remote-state.remote-user": cachedState
+    });
+
+    const callback = jest.fn();
+    const unsubscribe = remoteFirestoreService.subscribeToTransactions("remote-user", callback);
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(callback.mock.calls.at(-1)?.[0]).toEqual([
+      expect.objectContaining({
+        id: "tx-offline-1",
+        description: "Conta offline"
+      })
+    ]);
+
+    unsubscribe();
+  });
+
+  it("queues remote transactions offline and flushes them when the connection returns", async () => {
+    (globalThis as typeof globalThis & { __GREEN_FINANCE_REMOTE_API_BASE_URL__?: string }).__GREEN_FINANCE_REMOTE_API_BASE_URL__ =
+      "https://backend.example.com/api";
+    let isOnline = false;
+    const remoteState: FinanceHydrationPayload = {
+      transactions: [],
+      categories: [],
+      goals: [],
+      settings: {
+        theme: "light",
+        currency: "BRL",
+        email: "remote@example.com"
+      }
+    };
+
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (!isOnline) {
+        throw new TypeError("Network request failed");
+      }
+
+      if (url.endsWith("/transactions/bulk-upsert")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        remoteState.transactions = body.items;
+        return mockJsonResponse(204, null);
+      }
+
+      if (url.endsWith("/bootstrap")) {
+        return mockJsonResponse(200, remoteState);
+      }
+
+      return mockJsonResponse(404, { error: "not-found" });
+    });
+
+    const { cache, firestoreService: remoteFirestoreService } = loadRemoteFirestoreService({
+      "green-finance.remote-session": {
+        token: "session-remote",
+        user: {
+          uid: "remote-user",
+          email: "remote@example.com"
+        }
+      },
+      "green-finance.remote-state.remote-user": remoteState
+    });
+
+    const id = await remoteFirestoreService.createTransaction({
+      userId: "remote-user",
+      type: "expense",
+      amount: 77,
+      categoryId: "housing",
+      categoryName: "Moradia",
+      description: "Internet offline",
+      date: "2026-03-10",
+      isRecurring: false
+    });
+
+    expect(cache.get("green-finance.remote-mutation-queue")).toEqual([
+      expect.objectContaining({
+        kind: "bulk-upsert",
+        userId: "remote-user",
+        collection: "transactions"
+      })
+    ]);
+    expect((cache.get("green-finance.remote-state.remote-user") as FinanceHydrationPayload).transactions).toEqual([
+      expect.objectContaining({
+        id,
+        description: "Internet offline"
+      })
+    ]);
+
+    isOnline = true;
+    await remoteFirestoreService.flushPendingRemoteMutations("remote-user");
+
+    expect(cache.get("green-finance.remote-mutation-queue")).toEqual([]);
+    expect(remoteState.transactions).toEqual([
+      expect.objectContaining({
+        id,
+        description: "Internet offline"
+      })
+    ]);
   });
 
   it("falls back to local subscriptions when firestore is not configured", async () => {

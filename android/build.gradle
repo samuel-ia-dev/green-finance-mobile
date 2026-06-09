@@ -23,15 +23,38 @@ buildscript {
 
 apply plugin: "com.facebook.react.rootproject"
 
+def isWindows = File.separatorChar == '\\'
+def nodeExecutable = System.getenv("NODE_BINARY")?.trim()
+if (!nodeExecutable) {
+    def candidates = []
+    def programFiles = System.getenv("ProgramFiles")
+    if (programFiles) {
+        candidates << new File(programFiles, "nodejs/node.exe")
+    }
+    def programFilesX86 = System.getenv("ProgramFiles(x86)")
+    if (programFilesX86) {
+        candidates << new File(programFilesX86, "nodejs/node.exe")
+    }
+    candidates << new File("C:/Program Files/nodejs/node.exe")
+    candidates << new File("C:/Progra~1/nodejs/node.exe")
+
+    def nodeExe = candidates.find { it.exists() }
+    nodeExecutable = nodeExe ? nodeExe.absolutePath : "node"
+}
+
+def nodeCommand = (isWindows && nodeExecutable == "node")
+    ? [(System.getenv("ComSpec") ?: "cmd"), "/c", "node"]
+    : [nodeExecutable]
+
 allprojects {
     repositories {
         maven {
             // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
-            url(new File(['node', '--print', "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim(), '../android'))
+            url(new File((nodeCommand + ['--print', "require.resolve('react-native/package.json')"]).execute(null, rootDir).text.trim(), '../android'))
         }
         maven {
             // Android JSC is installed from npm
-            url(new File(['node', '--print', "require.resolve('jsc-android/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim(), '../dist'))
+            url(new File((nodeCommand + ['--print', "require.resolve('jsc-android/package.json', { paths: [require.resolve('react-native/package.json')] })"]).execute(null, rootDir).text.trim(), '../dist'))
         }
 
         google()

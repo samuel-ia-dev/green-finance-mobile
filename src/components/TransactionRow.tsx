@@ -25,10 +25,47 @@ function PaymentFlagIcon({ isDark, isPaid }: { isDark: boolean; isPaid: boolean 
   );
 }
 
+type ActionButtonProps = {
+  accessibilityLabel: string;
+  backgroundColor: string;
+  borderColor: string;
+  compact: boolean;
+  iconColor: string;
+  iconName: "pencil" | "trash";
+  label: string;
+  onPress: () => void;
+};
+
+function ActionButton({ accessibilityLabel, backgroundColor, borderColor, compact, iconColor, iconName, label, onPress }: ActionButtonProps) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.iconAction,
+        compact && styles.iconActionCompact,
+        {
+          backgroundColor,
+          borderColor,
+          opacity: pressed ? 0.78 : 1,
+          transform: [{ scale: pressed ? 0.96 : 1 }]
+        }
+      ]}
+    >
+      <Ionicons color={iconColor} name={iconName} size={compact ? 15 : 16} />
+      <Text style={[styles.iconActionLabel, compact && styles.iconActionLabelCompact, { color: iconColor }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function TransactionRow({ transaction, onEdit, onDelete, onTogglePaid }: TransactionRowProps) {
   const { isDark, theme } = useAppTheme();
   const { isCompact } = useResponsiveLayout();
-  const deleteActionBackground = isDark ? "rgba(239, 68, 68, 0.18)" : "rgba(239, 68, 68, 0.12)";
+  const editActionBackground = isDark ? "rgba(34, 197, 94, 0.18)" : "rgba(34, 197, 94, 0.12)";
+  const deleteActionBackground = isDark ? "rgba(239, 68, 68, 0.18)" : "rgba(239, 68, 68, 0.1)";
+  const actionBorder = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(11, 16, 32, 0.08)";
   const isExpense = transaction.type === "expense";
   const isPaid = Boolean(transaction.isPaid);
   const amountColor = transaction.type === "income" ? theme.colors.success : isPaid ? theme.colors.success : theme.colors.text;
@@ -72,38 +109,28 @@ export function TransactionRow({ transaction, onEdit, onDelete, onTogglePaid }: 
         {(onEdit || onDelete) ? (
           <View style={styles.actions}>
             {onEdit ? (
-              <Pressable
+              <ActionButton
                 accessibilityLabel={`Editar ${transaction.description}`}
-                accessibilityRole="button"
-                hitSlop={8}
+                backgroundColor={editActionBackground}
+                borderColor={actionBorder}
+                compact={isCompact}
+                iconColor={theme.colors.primary}
+                iconName="pencil"
+                label="Editar"
                 onPress={onEdit}
-                style={({ pressed }) => [
-                  styles.iconAction,
-                  {
-                    backgroundColor: isDark ? "rgba(34, 197, 94, 0.14)" : "rgba(34, 197, 94, 0.1)",
-                    opacity: pressed ? 0.72 : 1
-                  }
-                ]}
-              >
-                <Ionicons color={theme.colors.primary} name="create-outline" size={12} />
-              </Pressable>
+              />
             ) : null}
             {onDelete ? (
-              <Pressable
+              <ActionButton
                 accessibilityLabel={`Excluir ${transaction.description}`}
-                accessibilityRole="button"
-                hitSlop={8}
+                backgroundColor={deleteActionBackground}
+                borderColor={actionBorder}
+                compact={isCompact}
+                iconColor={palette.danger}
+                iconName="trash"
+                label="Excluir"
                 onPress={onDelete}
-                style={({ pressed }) => [
-                  styles.iconAction,
-                  {
-                    backgroundColor: deleteActionBackground,
-                    opacity: pressed ? 0.72 : 1
-                  }
-                ]}
-              >
-                <Ionicons color={palette.danger} name="trash-outline" size={12} />
-              </Pressable>
+              />
             ) : null}
           </View>
         ) : null}
@@ -201,10 +228,26 @@ const styles = StyleSheet.create({
     gap: spacing.xs
   },
   iconAction: {
-    width: 28,
-    height: 28,
-    borderRadius: radii.pill,
+    minWidth: 78,
+    height: 36,
+    borderRadius: radii.md,
+    borderWidth: 1,
     alignItems: "center",
-    justifyContent: "center"
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm
+  },
+  iconActionCompact: {
+    minWidth: 72,
+    height: 34,
+    paddingHorizontal: spacing.xs + 2
+  },
+  iconActionLabel: {
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  iconActionLabelCompact: {
+    fontSize: 11
   }
 });

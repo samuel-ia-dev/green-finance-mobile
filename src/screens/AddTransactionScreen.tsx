@@ -9,7 +9,7 @@ import { firestoreService } from "@/services/firestoreService";
 import { useFinanceStore } from "@/store/useFinanceStore";
 import { TransactionType } from "@/types/finance";
 import { suggestCategory } from "@/utils/categorySuggestion";
-import { getMonthKey, parseCurrencyInput } from "@/utils/format";
+import { parseCurrencyInput } from "@/utils/format";
 import { resolveRecurringEndDate } from "@/utils/recurring";
 import { radii, spacing } from "@/theme/tokens";
 
@@ -25,27 +25,50 @@ export function AddTransactionScreen() {
   const addTransaction = useFinanceStore((state) => state.addTransaction);
   const updateTransactionLocal = useFinanceStore((state) => state.updateTransactionLocal);
   const clearEditingTransaction = useFinanceStore((state) => state.clearEditingTransaction);
+  const activeMonthKey = useFinanceStore((state) => state.activeMonthKey);
+  const setActiveMonthKey = useFinanceStore((state) => state.setActiveMonthKey);
   const [type, setType] = useState<TransactionType>("expense");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [categoryName, setCategoryName] = useState("Outros");
-  const [date, setDate] = useState(`${getMonthKey()}-10`);
+  const [date, setDate] = useState(`${activeMonthKey}-10`);
   const [isRecurring, setIsRecurring] = useState(false);
   const [frequency, setFrequency] = useState<"weekly" | "monthly" | "yearly">("monthly");
   const [endDate, setEndDate] = useState("");
+  const isEditing = Boolean(editingTransaction);
 
   const suggestedCategory = useMemo(() => suggestCategory(description, history), [description, history]);
+
+  function handleChangeDate(nextDate: string) {
+    setDate(nextDate);
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+      setActiveMonthKey(nextDate.slice(0, 7));
+    }
+  }
 
   function resetForm() {
     setType("expense");
     setAmount("");
     setDescription("");
     setCategoryName("Outros");
-    setDate(`${getMonthKey()}-10`);
+    setDate(`${activeMonthKey}-10`);
     setIsRecurring(false);
     setFrequency("monthly");
     setEndDate("");
   }
+
+  useEffect(() => {
+    if (editingTransaction) {
+      return;
+    }
+
+    setDate((current) => {
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(current) ? current.slice(8, 10) : "10";
+      const next = `${activeMonthKey}-${day}`;
+      return next === current ? current : next;
+    });
+  }, [activeMonthKey, editingTransaction]);
 
   useEffect(() => {
     if (!editingTransaction) {
@@ -107,7 +130,10 @@ export function AddTransactionScreen() {
 
   return (
     <ScreenShell>
-      <SectionCard title={editingTransaction ? "Editar transação" : "Nova transação"} subtitle={`Sugestão automática: ${suggestedCategory}`}>
+      <SectionCard
+        title={editingTransaction ? "Editar transação" : "Nova transação"}
+        subtitle={editingTransaction ? `Sugestão automática: ${suggestedCategory}` : `Sugestão automática: ${suggestedCategory} | usa o período da tela inicial`}
+      >
         <View style={[styles.row, isCompact && styles.rowWrap]}>
           <Pressable
             onPress={() => setType("income")}
@@ -162,16 +188,19 @@ export function AddTransactionScreen() {
             </Pressable>
           ))}
         </View>
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: theme.colors.textMuted }]}>Data</Text>
-          <TextInput
-            placeholder="Data (YYYY-MM-DD)"
-            value={date}
-            onChangeText={setDate}
-            style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
-            placeholderTextColor={theme.colors.textMuted}
-          />
-        </View>
+        {!isEditing ? <Text style={[styles.helperText, { color: theme.colors.textMuted }]}>A data do lançamento segue o período selecionado na tela inicial.</Text> : null}
+        {isEditing ? (
+          <View style={styles.fieldGroup}>
+            <Text style={[styles.fieldLabel, { color: theme.colors.textMuted }]}>Data</Text>
+            <TextInput
+              placeholder="Data (YYYY-MM-DD)"
+              value={date}
+              onChangeText={handleChangeDate}
+              style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
+              placeholderTextColor={theme.colors.textMuted}
+            />
+          </View>
+        ) : null}
 
         {type === "expense" ? (
           <Pressable style={styles.switchRow} onPress={() => setIsRecurring((value) => !value)}>
@@ -188,16 +217,18 @@ export function AddTransactionScreen() {
               <Pressable onPress={() => setFrequency("monthly")} style={[styles.segmentButton, { backgroundColor: frequency === "monthly" ? theme.colors.cardAlt : "transparent", borderColor: frequency === "monthly" ? theme.colors.primary : theme.colors.borderSoft }]}><Text style={[styles.segmentLabel, { color: frequency === "monthly" ? theme.colors.primary : theme.colors.textMuted }]}>Mensal</Text></Pressable>
               <Pressable onPress={() => setFrequency("yearly")} style={[styles.segmentButton, { backgroundColor: frequency === "yearly" ? theme.colors.cardAlt : "transparent", borderColor: frequency === "yearly" ? theme.colors.primary : theme.colors.borderSoft }]}><Text style={[styles.segmentLabel, { color: frequency === "yearly" ? theme.colors.primary : theme.colors.textMuted }]}>Anual</Text></Pressable>
             </View>
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>Data de início</Text>
-              <TextInput
-                placeholder="Data de início"
-                value={date}
-                onChangeText={setDate}
-                style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
-                placeholderTextColor={theme.colors.textMuted}
-              />
-            </View>
+            {isEditing ? (
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>Data de início</Text>
+                <TextInput
+                  placeholder="Data de início"
+                  value={date}
+                  onChangeText={handleChangeDate}
+                  style={[styles.input, { backgroundColor: theme.colors.cardAlt, borderColor: theme.colors.borderSoft, color: theme.colors.text }]}
+                  placeholderTextColor={theme.colors.textMuted}
+                />
+              </View>
+            ) : null}
             <View style={styles.fieldGroup}>
               <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>Data final</Text>
               <TextInput
@@ -239,6 +270,10 @@ const styles = StyleSheet.create({
   },
   fieldGroup: {
     gap: spacing.xs
+  },
+  helperText: {
+    fontSize: 12,
+    lineHeight: 18
   },
   fieldLabel: {
     fontSize: 13,

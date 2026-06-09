@@ -26,13 +26,13 @@ export const lightTheme: AppTheme = {
     text: palette.ink,
     border: palette.borderLight,
     notification: palette.blue,
-    cardAlt: "#EEF4FF",
-    textMuted: "#475569",
+    cardAlt: "#E4F1E8",
+    textMuted: "#5B6F64",
     success: palette.success,
     warning: palette.warning,
-    borderSoft: "#E2E8F0",
-    heroStart: "#0F172A",
-    heroEnd: "#1D4ED8"
+    borderSoft: "#D8E8DE",
+    heroStart: "#07140E",
+    heroEnd: "#173528"
   }
 };
 
@@ -43,17 +43,17 @@ export const darkTheme: AppTheme = {
   colors: {
     ...DarkTheme.colors,
     primary: palette.green,
-    background: palette.ink,
+    background: palette.darkSurface,
     card: palette.darkCard,
     text: palette.white,
     border: palette.borderDark,
     notification: palette.blue,
-    cardAlt: "#0F172A",
-    textMuted: "#94A3B8",
+    cardAlt: "#12201A",
+    textMuted: "#9AB7A8",
     success: palette.success,
     warning: palette.warning,
-    borderSoft: "#23314D",
-    heroStart: "#14532D",
-    heroEnd: "#1D4ED8"
+    borderSoft: "#2D463B",
+    heroStart: "#07110D",
+    heroEnd: "#17392B"
   }
 };

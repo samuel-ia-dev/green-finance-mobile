@@ -6,6 +6,10 @@ const mockAddTransaction = jest.fn();
 const mockUpdateTransactionLocal = jest.fn();
 const mockClearEditingTransaction = jest.fn();
 let mockEditingTransaction: Record<string, unknown> | null = null;
+let mockActiveMonthKey = "2026-03";
+const mockSetActiveMonthKey = jest.fn((monthKey: string) => {
+  mockActiveMonthKey = monthKey;
+});
 
 jest.mock("@/context/AuthSessionContext", () => ({
   useAuthSession: () => ({
@@ -29,7 +33,9 @@ jest.mock("@/store/useFinanceStore", () => ({
       editingTransaction: mockEditingTransaction,
       addTransaction: mockAddTransaction,
       updateTransactionLocal: mockUpdateTransactionLocal,
-      clearEditingTransaction: mockClearEditingTransaction
+      clearEditingTransaction: mockClearEditingTransaction,
+      activeMonthKey: mockActiveMonthKey,
+      setActiveMonthKey: mockSetActiveMonthKey
     })
 }));
 
@@ -37,8 +43,32 @@ describe("AddTransactionScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEditingTransaction = null;
+    mockActiveMonthKey = "2026-03";
     (firestoreService.createTransaction as jest.Mock).mockResolvedValue("tx-1");
     (firestoreService.updateTransaction as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  it("uses the initial screen month for new transactions without showing date fields", async () => {
+    const screen = render(<AddTransactionScreen />);
+
+    expect(screen.queryByPlaceholderText("Data (YYYY-MM-DD)")).toBeNull();
+    expect(screen.queryByPlaceholderText("Data de início")).toBeNull();
+    expect(screen.getByText("A data do lançamento segue o período selecionado na tela inicial.")).toBeTruthy();
+
+    mockActiveMonthKey = "2026-04";
+    screen.rerender(<AddTransactionScreen />);
+
+    fireEvent.changeText(screen.getByPlaceholderText("Valor"), "120");
+    fireEvent.changeText(screen.getByPlaceholderText("Descrição"), "Internet");
+    fireEvent.press(screen.getByText("Salvar transação"));
+
+    await waitFor(() => {
+      expect(firestoreService.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          date: "2026-04-10"
+        })
+      );
+    });
   });
 
   it("shows recurring fields only for recurring expenses", () => {
@@ -48,7 +78,7 @@ describe("AddTransactionScreen", () => {
     fireEvent.press(screen.getByText("Marcar recorrente"));
 
     expect(screen.getByText("Frequência")).toBeTruthy();
-    expect(screen.getByText("Data de início")).toBeTruthy();
+    expect(screen.queryByText("Data de início")).toBeNull();
   });
 
   it("uses a numeric input for the amount field", () => {
@@ -129,6 +159,7 @@ describe("AddTransactionScreen", () => {
     const screen = render(<AddTransactionScreen />);
 
     expect(screen.getByDisplayValue("Internet")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Data (YYYY-MM-DD)").props.value).toBe("2026-03-10");
     expect(screen.getByText("Salvar alterações")).toBeTruthy();
 
     fireEvent.changeText(screen.getByPlaceholderText("Descrição"), "Internet fibra");

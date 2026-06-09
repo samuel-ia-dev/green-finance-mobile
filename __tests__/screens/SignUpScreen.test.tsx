@@ -17,6 +17,7 @@ jest.mock("@/services/authService", () => ({
 jest.mock("@/services/biometricAuthService", () => ({
   biometricAuthService: {
     getStatus: jest.fn(),
+    hasStoredWebCredential: jest.fn().mockReturnValue(false),
     rememberCredentials: jest.fn(),
     clearCredentials: jest.fn(),
     loginWithBiometrics: jest.fn()

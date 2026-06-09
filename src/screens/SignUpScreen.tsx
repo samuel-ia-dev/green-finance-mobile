@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, TextInput } from "react-native";
 import { ScreenShell } from "@/components/ScreenShell";
 import { SectionCard } from "@/components/SectionCard";
 import { useAppTheme } from "@/context/ThemeContext";
@@ -21,11 +21,23 @@ export function SignUpScreen({ navigation }: Props) {
   const [error, setError] = useState("");
 
   async function handleRegister() {
+    const webBiometricRegistration =
+      Platform.OS === "web" && !biometricAuthService.hasStoredWebCredential() && email.trim() && password.trim()
+        ? biometricAuthService.rememberCredentials(email, password).catch(() => false)
+        : null;
+
     try {
       setError("");
       await authService.register(email, password);
-      await biometricAuthService.rememberCredentials(email, password).catch(() => false);
+      if (webBiometricRegistration) {
+        await webBiometricRegistration;
+      } else {
+        await biometricAuthService.rememberCredentials(email, password).catch(() => false);
+      }
     } catch (currentError) {
+      if (webBiometricRegistration) {
+        await biometricAuthService.clearCredentials().catch(() => undefined);
+      }
       setError(mapAuthError(currentError));
     }
   }

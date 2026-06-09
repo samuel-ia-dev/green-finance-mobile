@@ -2,6 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { authService } from "@/services/authService";
 import { biometricAuthService } from "@/services/biometricAuthService";
+import { savedAccessService } from "@/services/savedAccessService";
 
 jest.mock("@/services/authService", () => ({
   ...jest.requireActual("@/services/authService"),
@@ -17,9 +18,20 @@ jest.mock("@/services/authService", () => ({
 jest.mock("@/services/biometricAuthService", () => ({
   biometricAuthService: {
     getStatus: jest.fn(),
+    hasStoredWebCredential: jest.fn().mockReturnValue(false),
     rememberCredentials: jest.fn(),
     clearCredentials: jest.fn(),
     loginWithBiometrics: jest.fn()
+  }
+}));
+
+jest.mock("@/services/savedAccessService", () => ({
+  savedAccessService: {
+    isEnabled: jest.fn(),
+    setEnabled: jest.fn(),
+    rememberCredentials: jest.fn(),
+    clearSavedAccess: jest.fn(),
+    resumeSavedAccess: jest.fn()
   }
 }));
 
@@ -31,6 +43,9 @@ describe("LoginScreen", () => {
       isEnabled: false,
       label: "biometria"
     });
+    (savedAccessService.isEnabled as jest.Mock).mockResolvedValue(true);
+    (savedAccessService.rememberCredentials as jest.Mock).mockResolvedValue(true);
+    (savedAccessService.clearSavedAccess as jest.Mock).mockResolvedValue(undefined);
   });
 
   it("shows a validation message when email and password are missing", async () => {
@@ -85,7 +100,25 @@ describe("LoginScreen", () => {
     fireEvent.press(screen.getByText("Entrar"));
 
     await waitFor(() => {
+      expect(savedAccessService.rememberCredentials).toHaveBeenCalledWith("john@example.com", "123456");
       expect(biometricAuthService.rememberCredentials).toHaveBeenCalledWith("john@example.com", "123456");
+    });
+  });
+
+  it("allows disabling saved access before login", async () => {
+    (authService.login as jest.Mock).mockResolvedValueOnce({ uid: "user-1", email: "john@example.com" });
+    const navigation = { navigate: jest.fn() };
+
+    const screen = render(<LoginScreen navigation={navigation as never} />);
+
+    fireEvent(screen.getByLabelText("Salvar acesso"), "valueChange", false);
+    fireEvent.changeText(screen.getByPlaceholderText("Email"), "john@example.com");
+    fireEvent.changeText(screen.getByPlaceholderText("Senha"), "123456");
+    fireEvent.press(screen.getByText("Entrar"));
+
+    await waitFor(() => {
+      expect(savedAccessService.setEnabled).toHaveBeenCalledWith(false);
+      expect(savedAccessService.clearSavedAccess).toHaveBeenCalled();
     });
   });
 
@@ -111,5 +144,6 @@ describe("LoginScreen", () => {
     const screen = render(<LoginScreen navigation={navigation as never} />);
 
     expect(screen.getByLabelText("Green Finance icon")).toBeTruthy();
+    expect(screen.getByText("Salvar acesso")).toBeTruthy();
   });
 });
