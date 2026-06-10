@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { ScreenShell } from "@/components/ScreenShell";
 import { useAppTheme } from "@/context/ThemeContext";
@@ -14,40 +14,49 @@ import { buildDashboardSummary } from "@/utils/dashboard";
 import { formatCurrency, formatShortDate, shiftMonthKey } from "@/utils/format";
 import { palette, radii, spacing } from "@/theme/tokens";
 
-const MONTH_LABELS = [
-  "Jan",
-  "Fev",
-  "Mar",
-  "Abr",
-  "Maio",
-  "Jun",
-  "Jul",
-  "Ago",
-  "Set",
-  "Out",
-  "Nov",
-  "Dez"
+const MONTH_SHORT_LABELS = [
+  "Jan.",
+  "Fev.",
+  "Mar.",
+  "Abr.",
+  "Mai.",
+  "Jun.",
+  "Jul.",
+  "Ago.",
+  "Set.",
+  "Out.",
+  "Nov.",
+  "Dez."
 ];
 
-function formatMonthNavigationLabel(monthKey: string, active: boolean) {
+const MONTH_FULL_LABELS = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro"
+];
+
+const UPCOMING_LIST_HEIGHT = 188;
+const LATEST_LIST_HEIGHT = 252;
+
+function formatMonthNavigationLabel(monthKey: string) {
   const monthIndex = Number(monthKey.slice(5, 7)) - 1;
-  const label = MONTH_LABELS[monthIndex] ?? monthKey.slice(5, 7);
-
-  if (!active && label.length > 3) {
-    return label.slice(0, 3);
-  }
-
-  return label;
+  return MONTH_SHORT_LABELS[monthIndex] ?? monthKey.slice(5, 7);
 }
 
 function formatMonthHeading(monthKey: string) {
-  const parsed = new Date(`${monthKey}-01T12:00:00`);
-  const label = parsed.toLocaleDateString("pt-BR", {
-    month: "long",
-    year: "numeric"
-  });
-
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  const monthIndex = Number(monthKey.slice(5, 7)) - 1;
+  const year = monthKey.slice(0, 4);
+  const monthLabel = MONTH_FULL_LABELS[monthIndex] ?? monthKey.slice(5, 7);
+  return `${monthLabel} de ${year}`;
 }
 
 function getHealthLabel(status: "healthy" | "attention" | "critical") {
@@ -167,11 +176,10 @@ export function HomeScreen() {
     () =>
       [...transactions]
         .filter((transaction) => transaction.type === "expense" && !transaction.isPaid && transaction.date.startsWith(activeMonthKey))
-        .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt))
-        .slice(0, 3),
+        .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt)),
     [activeMonthKey, transactions]
   );
-  const latestTransactions = useMemo(() => dashboard.recentTransactions.slice(0, 4), [dashboard.recentTransactions]);
+  const latestTransactions = useMemo(() => dashboard.recentTransactions, [dashboard.recentTransactions]);
 
   function handleToggleCalendar() {
     if (!isCalendarOpen) {
@@ -222,7 +230,7 @@ export function HomeScreen() {
                     }
                   ]}
                 >
-                  {formatMonthNavigationLabel(monthKey, isActive)}
+                  {formatMonthNavigationLabel(monthKey)}
                 </Text>
               </Pressable>
             );
@@ -257,14 +265,15 @@ export function HomeScreen() {
             </Pressable>
           </View>
           <View style={styles.calendarGrid}>
-            {MONTH_LABELS.map((monthLabel, monthIndex) => {
+            {MONTH_SHORT_LABELS.map((monthLabel, monthIndex) => {
               const monthKey = `${calendarYear}-${`${monthIndex + 1}`.padStart(2, "0")}`;
               const isSelected = activeMonthKey === monthKey;
+              const fullMonthLabel = MONTH_FULL_LABELS[monthIndex] ?? monthLabel;
 
               return (
                 <Pressable
                   key={monthKey}
-                  accessibilityLabel={`Selecionar ${monthLabel} de ${calendarYear}`}
+                  accessibilityLabel={`Selecionar ${fullMonthLabel} de ${calendarYear}`}
                   onPress={() => handleSelectMonth(monthIndex)}
                   style={[
                     styles.calendarMonth,
@@ -338,18 +347,25 @@ export function HomeScreen() {
           </Pressable>
         </View>
         {upcomingTransactions.length ? (
-          upcomingTransactions.map((transaction) => (
-            <HomeTransactionItem
-              key={transaction.id}
-              amountColor={palette.danger}
-              iconName={transaction.isRecurring ? "repeat" : "receipt-outline"}
-              iconTone={transaction.isRecurring ? theme.colors.primary : theme.colors.notification}
-              meta={`${transaction.categoryName} | ${transaction.isRecurring ? "Recorrente" : "Lançamento do mês"}`}
-              onPress={() => handleOpenTransaction(transaction)}
-              title={transaction.description}
-              transaction={transaction}
-            />
-          ))
+          <ScrollView
+            contentContainerStyle={styles.transactionsListContent}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            style={styles.upcomingTransactionsList}
+          >
+            {upcomingTransactions.map((transaction) => (
+              <HomeTransactionItem
+                key={transaction.id}
+                amountColor={palette.danger}
+                iconName={transaction.isRecurring ? "repeat" : "receipt-outline"}
+                iconTone={transaction.isRecurring ? theme.colors.primary : theme.colors.notification}
+                meta={`${transaction.categoryName} | ${transaction.isRecurring ? "Recorrente" : "Lançamento do mês"}`}
+                onPress={() => handleOpenTransaction(transaction)}
+                title={transaction.description}
+                transaction={transaction}
+              />
+            ))}
+          </ScrollView>
         ) : (
           <Text style={[styles.emptyState, { color: theme.colors.textMuted }]}>Nenhuma conta pendente neste mês.</Text>
         )}
@@ -375,18 +391,25 @@ export function HomeScreen() {
           </Pressable>
         </View>
         {latestTransactions.length ? (
-          latestTransactions.map((transaction) => (
-            <HomeTransactionItem
-              key={transaction.id}
-              amountColor={transaction.type === "income" ? theme.colors.success : transaction.isPaid ? theme.colors.success : theme.colors.text}
-              iconName={transaction.type === "income" ? "arrow-up-outline" : "arrow-down-outline"}
-              iconTone={transaction.type === "income" ? theme.colors.success : theme.colors.notification}
-              meta={`${transaction.categoryName} | ${transaction.type === "income" ? "Receita" : transaction.isPaid ? "Pago" : "Despesa"}`}
-              onPress={() => handleOpenTransaction(transaction)}
-              title={transaction.description}
-              transaction={transaction}
-            />
-          ))
+          <ScrollView
+            contentContainerStyle={styles.transactionsListContent}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            style={styles.latestTransactionsList}
+          >
+            {latestTransactions.map((transaction) => (
+              <HomeTransactionItem
+                key={transaction.id}
+                amountColor={transaction.type === "income" ? theme.colors.success : transaction.isPaid ? theme.colors.success : theme.colors.text}
+                iconName={transaction.type === "income" ? "arrow-up-outline" : "arrow-down-outline"}
+                iconTone={transaction.type === "income" ? theme.colors.success : theme.colors.notification}
+                meta={`${transaction.categoryName} | ${transaction.type === "income" ? "Receita" : transaction.isPaid ? "Pago" : "Despesa"}`}
+                onPress={() => handleOpenTransaction(transaction)}
+                title={transaction.description}
+                transaction={transaction}
+              />
+            ))}
+          </ScrollView>
         ) : (
           <Text style={[styles.emptyState, { color: theme.colors.textMuted }]}>Sem transações cadastradas neste mês.</Text>
         )}
@@ -618,6 +641,18 @@ const styles = StyleSheet.create({
   sectionAction: {
     fontSize: 12,
     fontWeight: "800"
+  },
+  upcomingTransactionsList: {
+    height: UPCOMING_LIST_HEIGHT,
+    paddingRight: spacing.xs
+  },
+  latestTransactionsList: {
+    height: LATEST_LIST_HEIGHT,
+    paddingRight: spacing.xs
+  },
+  transactionsListContent: {
+    paddingBottom: spacing.xs,
+    paddingRight: spacing.xs
   },
   transactionCard: {
     alignItems: "center",

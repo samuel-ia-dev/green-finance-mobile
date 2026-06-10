@@ -3,6 +3,21 @@ const brlFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL"
 });
 
+const MONTH_FULL_LABELS = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro"
+];
+
 export function formatCurrency(value: number) {
   return brlFormatter.format(value);
 }
@@ -16,11 +31,10 @@ export function formatShortDate(date: string) {
 }
 
 export function formatMonthYear(date: string) {
-  const parsed = new Date(`${date}T00:00:00`);
-  return parsed.toLocaleDateString("pt-BR", {
-    month: "long",
-    year: "numeric"
-  });
+  const [year, month] = date.split("-");
+  const monthIndex = Number(month) - 1;
+  const monthLabel = MONTH_FULL_LABELS[monthIndex] ?? month;
+  return `${monthLabel} de ${year}`;
 }
 
 export function formatMonthChip(monthKey: string) {

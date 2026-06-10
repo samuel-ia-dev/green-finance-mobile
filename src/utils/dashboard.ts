@@ -67,7 +67,7 @@ export function buildDashboardSummary(transactions: Transaction[], goals: Goal[]
     recurringTotal,
     healthStatus,
     categoryBreakdown,
-    recentTransactions: [...monthlyTransactions].sort((left, right) => right.date.localeCompare(left.date)).slice(0, 5),
+    recentTransactions: [...monthlyTransactions].sort((left, right) => right.date.localeCompare(left.date)),
     recurringTransactions,
     goalProgress: goals.map(toGoalProgress),
     insights: buildInsights(monthlyOpenTransactions, previousOpenTransactions, monthKey)
